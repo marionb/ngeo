@@ -27,6 +27,8 @@ https.get('https://docs.angularjs.org/js/search-data.json', function (result) {
         }
         console.log("    helper.registerLink('angular.Scope', " +
             "'https://docs.angularjs.org/guide/scope');");
+        console.log("    helper.registerLink('angular.Directive', " +
+            "'https://docs.angularjs.org/guide/directive');");
         console.log("}");
     })
 
