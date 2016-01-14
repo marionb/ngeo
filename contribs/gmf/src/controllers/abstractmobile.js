@@ -1,12 +1,3 @@
-/**
- * @fileoverview Application entry point.
- *
- * This file defines the "app_mobile" Closure namespace, which is be used as the
- * Closure entry point (see "closure_entry_point" in the "build.json" file).
- *
- * This file includes `goog.require`'s for all the components/directives used
- * by the HTML page and the controller to provide the configuration.
- */
 goog.provide('gmf.AbstractMobileController');
 
 goog.require('gmf');
@@ -47,6 +38,14 @@ gmfModule.constant(
 
 
 /**
+ * Application entry point.
+ *
+ * This file defines the "app_mobile" Closure namespace, which is be used as the
+ * Closure entry point (see "closure_entry_point" in the "build.json" file).
+ *
+ * This file includes `goog.require`'s for all the components/directives used
+ * by the HTML page and the controller to provide the configuration.
+ *
  * @param {ngeo.FeatureOverlayMgr} ngeoFeatureOverlayMgr The ngeo feature
  *     overlay manager service.
  * @param {Object} serverVars vars from GMF
