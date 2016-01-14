@@ -445,6 +445,16 @@ exports.publish = function(taffyData, opts, tutorials) {
     jsdocOl3.registerOl3Link(helper);
     jsdocAngularJS.registerAngularJSLink(helper);
 
+    // Add standard types
+    helper.registerLink('Object', 'https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Object');
+    helper.registerLink('undefined', 'https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/undefined');
+    helper.registerLink('null', 'https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/null');
+    helper.registerLink('boolean', 'https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Boolean');
+    helper.registerLink('string', 'https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/String');
+    helper.registerLink('number', 'https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Number');
+    helper.registerLink('Array', 'https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Array');
+    helper.registerLink('function', 'https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Function');
+
     // set up templating
     view.layout = conf.default.layoutFile ?
         path.getResourcePath(path.dirname(conf.default.layoutFile),
