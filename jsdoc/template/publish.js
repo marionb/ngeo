@@ -455,6 +455,12 @@ exports.publish = function(taffyData, opts, tutorials) {
     helper.registerLink('Array', 'https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Array');
     helper.registerLink('function', 'https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Function');
 
+    // Add angular gettext types
+    helper.registerLink('angularGettext.Catalog', 'https://angular-gettext.rocketeer.be/dev-guide/api/angular-gettext/');
+
+    // Add typeahead types
+    helper.registerLink('TypeaheadDataset', 'https://github.com/twitter/typeahead.js/blob/master/doc/jquery_typeahead.md#datasets');
+
     // set up templating
     view.layout = conf.default.layoutFile ?
         path.getResourcePath(path.dirname(conf.default.layoutFile),
