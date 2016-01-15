@@ -67,13 +67,13 @@
   top: .5em;
   right: .5em;
   -webkit-transition: opacity .25s linear, visibility 0s linear;
-          transition: opacity .25s linear, visibility 0s linear;
+  transition: opacity .25s linear, visibility 0s linear;
 }
 .ol-rotate.ol-hidden {
   opacity: 0;
   visibility: hidden;
   -webkit-transition: opacity .25s linear, visibility 0s linear .25s;
-          transition: opacity .25s linear, visibility 0s linear .25s;
+  transition: opacity .25s linear, visibility 0s linear .25s;
 }
 .ol-zoom-extent {
   top: 4.643em;
@@ -5741,14 +5741,14 @@ button.close {
 }
 .modal.fade .modal-dialog {
   -webkit-transform: translate(0, -25%);
-  -ms-transform: translate(0, -25%);
   transform: translate(0, -25%);
   -webkit-transition: -webkit-transform 0.3s ease-out;
+  transition: -webkit-transform 0.3s ease-out;
   transition: transform 0.3s ease-out;
+  transition: transform 0.3s ease-out, -webkit-transform 0.3s ease-out;
 }
 .modal.in .modal-dialog {
   -webkit-transform: translate(0, 0);
-  -ms-transform: translate(0, 0);
   transform: translate(0, 0);
 }
 .modal-open .modal {
@@ -6079,7 +6079,9 @@ button.close {
 @media all and (transform-3d), (-webkit-transform-3d) {
   .carousel-inner > .item {
     -webkit-transition: -webkit-transform 0.6s ease-in-out;
-            transition: transform 0.6s ease-in-out;
+    transition: -webkit-transform 0.6s ease-in-out;
+    transition: transform 0.6s ease-in-out;
+    transition: transform 0.6s ease-in-out, -webkit-transform 0.6s ease-in-out;
     -webkit-backface-visibility: hidden;
             backface-visibility: hidden;
     -webkit-perspective: 1000;
@@ -6816,17 +6818,17 @@ main {
   -webkit-transform: translateZ(0);
           transform: translateZ(0);
   -webkit-transition: -webkit-transform 0.3s;
-          transition: transform 0.3s;
+  transition: -webkit-transform 0.3s;
+  transition: transform 0.3s;
+  transition: transform 0.3s, -webkit-transform 0.3s;
   will-change: transform;
 }
 .nav-left-is-visible main {
   -webkit-transform: translateX(260px);
-      -ms-transform: translateX(260px);
           transform: translateX(260px);
 }
 .nav-right-is-visible main {
   -webkit-transform: translateX(-260px);
-      -ms-transform: translateX(-260px);
           transform: translateX(-260px);
 }
 main .overlay {
@@ -6881,7 +6883,7 @@ nav.nav-right header .go-back {
   left: 0;
   z-index: 2;
   -webkit-transition: opacity 1s;
-          transition: opacity 1s;
+  transition: opacity 1s;
   will-change: opacity, visibility;
   opacity: 0;
   visibility: hidden;
@@ -6898,7 +6900,6 @@ nav.nav-right header .go-back::before,
 nav.nav-left header .go-back::after,
 nav.nav-right header .go-back::after {
   -webkit-transform-origin: 1px 50%;
-      -ms-transform-origin: 1px 50%;
           transform-origin: 1px 50%;
   left: 10px;
 }
@@ -6908,10 +6909,11 @@ nav.nav-right header > nav {
   width: 260px;
   left: 260px;
   -webkit-transform: translateX(0);
-      -ms-transform: translateX(0);
           transform: translateX(0);
-  -webkit-transition: -webkit-transform 0.3s, opacity 0.3s;
-          transition: transform 0.3s, opacity 0.3s;
+  -webkit-transition: opacity 0.3s, -webkit-transform 0.3s;
+  transition: opacity 0.3s, -webkit-transform 0.3s;
+  transition: transform 0.3s, opacity 0.3s;
+  transition: transform 0.3s, opacity 0.3s, -webkit-transform 0.3s;
   will-change: transform, opacity;
   opacity: 0;
   text-align: center;
@@ -6919,33 +6921,28 @@ nav.nav-right header > nav {
 nav.nav-left header > nav.active,
 nav.nav-right header > nav.active {
   -webkit-transform: translateX(-100%);
-      -ms-transform: translateX(-100%);
           transform: translateX(-100%);
   opacity: 1;
 }
 nav.nav-left header > nav.slide-out,
 nav.nav-right header > nav.slide-out {
   -webkit-transform: translateX(-120%);
-      -ms-transform: translateX(-120%);
           transform: translateX(-120%);
   opacity: 0;
 }
 nav.nav-left header.back > nav,
 nav.nav-right header.back > nav {
   -webkit-transform: translate(-120%);
-      -ms-transform: translate(-120%);
           transform: translate(-120%);
 }
 nav.nav-left header.back > nav.active,
 nav.nav-right header.back > nav.active {
   -webkit-transform: translateX(-100%);
-      -ms-transform: translateX(-100%);
           transform: translateX(-100%);
 }
 nav.nav-left header.back > nav.slide-out,
 nav.nav-right header.back > nav.slide-out {
   -webkit-transform: translateX(0);
-      -ms-transform: translateX(0);
           transform: translateX(0);
 }
 nav.nav-left a[data-toggle],
@@ -6960,7 +6957,6 @@ nav.nav-right a[data-toggle]::after {
   /* arrow goes on the right side - children navigation */
   right: 20px;
   -webkit-transform-origin: 9px 50%;
-      -ms-transform-origin: 9px 50%;
           transform-origin: 9px 50%;
 }
 nav.nav-left .go-back::before,
@@ -6988,7 +6984,6 @@ nav.nav-right .go-back::before,
 nav.nav-left a[data-toggle]::before,
 nav.nav-right a[data-toggle]::before {
   -webkit-transform: rotate(45deg);
-      -ms-transform: rotate(45deg);
           transform: rotate(45deg);
 }
 nav.nav-left .go-back::after,
@@ -6996,7 +6991,6 @@ nav.nav-right .go-back::after,
 nav.nav-left a[data-toggle]::after,
 nav.nav-right a[data-toggle]::after {
   -webkit-transform: rotate(-45deg);
-      -ms-transform: rotate(-45deg);
           transform: rotate(-45deg);
 }
 nav.nav-left ul a,
@@ -7016,24 +7010,23 @@ nav.nav-right .slide {
   height: 100%;
   width: 260px;
   -webkit-transform: translateX(100%);
-      -ms-transform: translateX(100%);
           transform: translateX(100%);
-  -webkit-transition: -webkit-transform 0.3s, opacity 0.3s;
-          transition: transform 0.3s, opacity 0.3s;
+  -webkit-transition: opacity 0.3s, -webkit-transform 0.3s;
+  transition: opacity 0.3s, -webkit-transform 0.3s;
+  transition: transform 0.3s, opacity 0.3s;
+  transition: transform 0.3s, opacity 0.3s, -webkit-transform 0.3s;
   will-change: transform, opacity;
   opacity: 0;
 }
 nav.nav-left .slide.active,
 nav.nav-right .slide.active {
   -webkit-transform: translateX(0%);
-      -ms-transform: translateX(0%);
           transform: translateX(0%);
   opacity: 1;
 }
 nav.nav-left .slide.slide-out,
 nav.nav-right .slide.slide-out {
   -webkit-transform: translateX(-20%);
-      -ms-transform: translateX(-20%);
           transform: translateX(-20%);
   opacity: 0;
 }
