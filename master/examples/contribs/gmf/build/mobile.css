@@ -105,6 +105,11 @@ nav.nav-left ul .treenode .legend a::before {
 nav.nav-left ul .treenode .legend img {
   padding-left: 15px;
 }
+html,
+body {
+  max-width: 100%;
+  overflow-x: hidden;
+}
 @font-face {
   font-family: "gmf-icons";
   src: url("../fonts/gmf-icons.eot");
