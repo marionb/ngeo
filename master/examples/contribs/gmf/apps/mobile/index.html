@@ -14,6 +14,7 @@
       <gmf-map gmf-map-map="mainCtrl.map"></gmf-map>
       <button class="nav-trigger nav-left-trigger"
         ng-click="mainCtrl.toggleLeftNavVisibility()">
+        <span class="gmf-icon gmf-icon-layers"></span>
       </button>
       <div class="search">
         <gmf-search gmf-search-map="mainCtrl.map"
@@ -23,11 +24,13 @@
       </div>
       <button class="nav-trigger nav-right-trigger"
         ng-click="mainCtrl.toggleRightNavVisibility()">
+        <i class="fa fa-wrench"></i>
       </button>
       <div class="overlay" ng-click="mainCtrl.hideNav()"></div>
       <button ngeo-mobile-geolocation=""
         ngeo-mobile-geolocation-map="::mainCtrl.map"
         ngeo-mobile-geolocation-options="::mainCtrl.mobileGeolocationOptions">
+        <span class="fa fa-location-arrow"></span>
       </button>
     </main>
     <nav class="nav-left" gmf-mobile-nav>
@@ -57,6 +60,13 @@
         <ul>
           <li>
             <a href="#themes" data-toggle="slide-in">Themes</a>
+          </li>
+          <li>
+            <gmf-layertree
+                gmf-layertree-source="mainCtrl.theme"
+                gmf-layertree-map="::mainCtrl.map"
+                gmf-layertree-openlinksinnewwindow="true">
+            </gmf-layertree>
           </li>
         </ul>
       </div>
@@ -91,22 +101,22 @@
         </ul>
       </div>
     </nav>
+    <script src="../../../../lib/Function.prototype.bind.js"></script>
     <script src="../../build/mobile.js"></script>
     <script src="../../../../lib/watchwatchers.js"></script>
     <script>
       (function() {
          var module = angular.module('app');
-         module.constant('serverVars', {
-           defaultLang: 'en',
-           langUrls: {
-             'en': '../../build/gmf-en.json',
-             'fr': '../../build/gmf-fr.json',
-             'de': '../../build/gmf-de.json'
-           },
-           serviceUrls: {
-             fulltextsearch: 'https://geomapfish-demo.camptocamp.net/2.0/wsgi/fulltextsearch?query=%QUERY'
-           }
+         module.constant('defaultLang', 'en');
+         module.constant('langUrls', {
+           'en': '../../build/gmf-en.json',
+           'fr': '../../build/gmf-fr.json',
+           'de': '../../build/gmf-de.json'
          });
+         module.constant('authenticationBaseUrl', 'https://geomapfish-demo.camptocamp.net/2.0/wsgi');
+         module.constant('fulltextsearchUrl', 'https://geomapfish-demo.camptocamp.net/2.0/wsgi/fulltextsearch?query=%QUERY');
+         module.constant('gmfWmsUrl', 'https://geomapfish-demo.camptocamp.net/2.0/wsgi/mapserv_proxy');
+         module.constant('gmfTreeUrl', 'https://geomapfish-demo.camptocamp.net/2.0/wsgi/themes?version=2&background=background');
        })();
     </script>
   </body>
