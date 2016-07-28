@@ -29,6 +29,12 @@ app.MainController = function($http, $timeout) {
   this.attributes = null;
 
   /**
+   * @type {boolean}
+   * @export
+   */
+  this.disabled = false;
+
+  /**
    * @type {ol.Feature}
    * @export
    */

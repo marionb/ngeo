@@ -94599,6 +94599,11 @@ ngeo.FeatureProperties = {
    */
   OPACITY: 'o',
   /**
+   * @type {number}
+   * @export
+   */
+  AZIMUT: 'z',
+  /**
    * @type {string}
    * @export
    */
@@ -94672,7 +94677,7 @@ goog.require('ngeo');
 ngeo.EventHelper = function() {
 
   /**
-   * @type {Object.<number, ngeo.EventHelper.ListenerKeys>}
+   * @type {Object.<number|string, ngeo.EventHelper.ListenerKeys>}
    * @private
    */
   this.listenerKeys_ = {};
@@ -94683,7 +94688,7 @@ ngeo.EventHelper = function() {
 /**
  * Utility method to add a listener key bound to a unique id. The key can
  * come from an `ol.events` (default) or `goog.events`.
- * @param {number} uid Unique id.
+ * @param {number|string} uid Unique id.
  * @param {ol.EventsKey|goog.events.Key} key Key.
  * @param {boolean=} opt_isol Whether it's an OpenLayers event or not. Defaults
  *     to true.
@@ -94705,7 +94710,7 @@ ngeo.EventHelper.prototype.addListenerKey = function(uid, key, opt_isol) {
 
 /**
  * Clear all listener keys from the given unique id.
- * @param {number} uid Unique id.
+ * @param {number|string} uid Unique id.
  * @export
  */
 ngeo.EventHelper.prototype.clearListenerKey = function(uid) {
@@ -94719,7 +94724,7 @@ ngeo.EventHelper.prototype.clearListenerKey = function(uid) {
  *   has not array set yet)
  * - unlisten any events if the array already exists for the given uid and
  *   empty the array.
- * @param {number} uid Unique id.
+ * @param {number|string} uid Unique id.
  * @private
  */
 ngeo.EventHelper.prototype.initListenerKey_ = function(uid) {
@@ -94762,18 +94767,20 @@ goog.provide('ngeo.attributesDirective');
 goog.require('ngeo');
 goog.require('ngeo.EventHelper');
 
-
 /**
  * Directive used to render the attributes of a feature into a form.
  * Example:
  *
  *     <ngeo-attributes
  *       ngeo-attributes-attributes="::ctrl.attributes"
+ *       ngeo-attributes-disabled="ctrl.attributesDisabled"
  *       ngeo-attributes-feature="::ctrl.feature">
  *     </ngeo-attributes>
  *
  * @htmlAttribute {Array.<ngeox.Attribute>} ngeo-attributes-attributes The
  *     list of attributes to use.
+ * @htmlAttribute {boolean} ngeo-attributes-disabled Whether the fieldset should
+ *     be disabled or not.
  * @htmlAttribute {ol.Feature} ngeo-attributes-feature The feature.
  * @return {angular.Directive} The directive specs.
  * @ngInject
@@ -94786,6 +94793,7 @@ ngeo.attributesDirective = function() {
     scope: true,
     bindToController: {
       'attributes': '=ngeoAttributesAttributes',
+      'disabled': '<ngeoAttributesDisabled',
       'feature': '=ngeoAttributesFeature'
     },
     controllerAs: 'attrCtrl',
@@ -94814,6 +94822,13 @@ ngeo.AttributesController = function($scope, ngeoEventHelper) {
   this.attributes;
 
   /**
+   * Whether the fieldset should be disabled or not.
+   * @type {boolean}
+   * @export
+   */
+  this.disabled = this.disabled === true;
+
+  /**
    * The feature containing the values.
    * @type {ol.Feature}
    * @export
@@ -94839,6 +94854,16 @@ ngeo.AttributesController = function($scope, ngeoEventHelper) {
    * @private
    */
   this.ngeoEventHelper_ = ngeoEventHelper;
+
+  /**
+   * Datepicker options
+   * @type {Object}
+   * @export
+   */
+  this.dateOptions = {
+    'changeMonth': true,
+    'changeYear': true
+  };
 
   // Listen to the feature inner properties change and apply them to the form
   var uid = goog.getUid(this);
@@ -94952,6 +94977,12 @@ ngeo.LayerHelper = function($q, $http) {
  * @const
  */
 ngeo.LayerHelper.GROUP_KEY = 'groupName';
+
+
+/**
+ * @const
+ */
+ngeo.LayerHelper.REFRESH_PARAM = 'random';
 
 
 /**
@@ -95207,6 +95238,22 @@ ngeo.LayerHelper.prototype.isLayerVisible = function(layer, map) {
   var currentResolution = map.getView().getResolution();
   return currentResolution > layer.getMinResolution() &&
       currentResolution < layer.getMaxResolution();
+};
+
+
+/**
+ * Force a WMS layer to refresh using a random value.
+ * @param {ol.layer.Image|ol.layer.Tile} layer Layer to refresh.
+ */
+ngeo.LayerHelper.prototype.refreshWMSLayer = function(layer) {
+  var source = layer.getSource();
+  goog.asserts.assert(
+    source instanceof ol.source.ImageWMS ||
+    source instanceof ol.source.TileWMS
+  );
+  var params = source.getParams();
+  params[ngeo.LayerHelper.REFRESH_PARAM] = Math.random();
+  source.updateParams(params);
 };
 
 
@@ -105714,6 +105761,7 @@ ngeo.module.directive('ngeoCreatefeature', ngeo.createfeatureDirective);
  * @param {angular.$compile} $compile Angular compile service.
  * @param {angular.$filter} $filter Angular filter
  * @param {!angular.Scope} $scope Scope.
+ * @param {angular.$timeout} $timeout Angular timeout service.
  * @param {ngeo.EventHelper} ngeoEventHelper Ngeo event helper service
  * @constructor
  * @ngInject
@@ -105721,7 +105769,7 @@ ngeo.module.directive('ngeoCreatefeature', ngeo.createfeatureDirective);
  * @ngname ngeoCreatefeatureController
  */
 ngeo.CreatefeatureController = function(gettext, $compile, $filter, $scope,
-    ngeoEventHelper) {
+    $timeout, ngeoEventHelper) {
 
   /**
    * @type {boolean}
@@ -105730,7 +105778,7 @@ ngeo.CreatefeatureController = function(gettext, $compile, $filter, $scope,
   this.active = this.active === true;
 
   /**
-   * @type {ol.Collection.<ol.Feature>}
+   * @type {ol.Collection.<ol.Feature>|ol.source.Vector}
    * @export
    */
   this.features;
@@ -105746,6 +105794,12 @@ ngeo.CreatefeatureController = function(gettext, $compile, $filter, $scope,
    * @export
    */
   this.map;
+
+  /**
+   * @type {angular.$timeout}
+   * @private
+   */
+  this.timeout_ = $timeout;
 
   /**
    * @type {ngeo.EventHelper}
@@ -105856,7 +105910,11 @@ ngeo.CreatefeatureController = function(gettext, $compile, $filter, $scope,
  */
 ngeo.CreatefeatureController.prototype.handleDrawEnd_ = function(event) {
   var feature = new ol.Feature(event.feature.getGeometry());
-  this.features.push(feature);
+  if (this.features instanceof ol.Collection) {
+    this.features.push(feature);
+  } else {
+    this.features.addFeature(feature);
+  }
 };
 
 
@@ -105865,9 +105923,12 @@ ngeo.CreatefeatureController.prototype.handleDrawEnd_ = function(event) {
  * @private
  */
 ngeo.CreatefeatureController.prototype.handleDestroy_ = function() {
-  var uid = goog.getUid(this);
-  this.ngeoEventHelper_.clearListenerKey(uid);
-  this.map.removeInteraction(this.interaction_);
+  this.timeout_(function() {
+    var uid = goog.getUid(this);
+    this.ngeoEventHelper_.clearListenerKey(uid);
+    this.interaction_.setActive(false);
+    this.map.removeInteraction(this.interaction_);
+  }.bind(this), 0);
 };
 
 
@@ -105961,7 +106022,9 @@ ngeo.module.value('ngeoDatePickerTemplateUrl',
 
 
 /**
- * Provide a directive to select a signle date or a range of dates
+ * Provide a directive to select a signle date or a range of dates. Requires
+ * jQuery UI for the 'datepicker' widget.
+ *
  * @param {string|function(!angular.JQLite=, !angular.Attributes=)}
  * ngeoDatePickerTemplateUrl Template for the directive.
  * @param  {angular.$timeout} $timeout angular timeout service
@@ -107099,1039 +107162,6 @@ ngeo.decorateInteraction = function(interaction) {
 
 ngeo.module.value('ngeoDecorateInteraction', ngeo.decorateInteraction);
 
-goog.provide('ngeo.FeatureHelper');
-
-goog.require('ngeo');
-/** @suppress {extraRequire} */
-goog.require('ngeo.filters');
-goog.require('ngeo.interaction.Measure');
-goog.require('ol.Feature');
-goog.require('ol.geom.LineString');
-goog.require('ol.geom.MultiPoint');
-goog.require('ol.geom.Polygon');
-goog.require('ol.format.GPX');
-goog.require('ol.format.KML');
-goog.require('ol.style.Circle');
-goog.require('ol.style.Fill');
-goog.require('ol.style.RegularShape');
-goog.require('ol.style.Stroke');
-goog.require('ol.style.Style');
-goog.require('ol.style.Text');
-
-
-/**
- * Provides methods for features, such as:
- *  - style setting / getting
- *  - measurement
- *  - export
- *
- * @constructor
- * @param {angular.$injector} $injector Main injector.
- * @param {angular.$filter} $filter Angular filter
- * @ngdoc service
- * @ngname ngeoFeatureHelper
- * @ngInject
- */
-ngeo.FeatureHelper = function($injector, $filter) {
-
-  /**
-   * @type {angular.$filter}
-   * @private
-   */
-  this.$filter_ = $filter;
-
-  /**
-   * @type {?number}
-   * @private
-   */
-  this.decimals_ = null;
-
-  if ($injector.has('ngeoMeasureDecimals')) {
-    this.decimals_ = $injector.get('ngeoMeasureDecimals');
-  }
-
-  /**
-   * @type {ngeox.unitPrefix}
-   */
-  this.format_ = $injector.get('$filter')('ngeoUnitPrefix');
-
-  /**
-   * Filter function to display point coordinates or null to don't use any
-   * filter.
-   * @type {function(*):string|null}
-   * @private
-   */
-  this.pointFilterFn_ = null;
-
-  /**
-   * Arguments to apply to the the point filter function.
-   * @type {Array.<*>}
-   * @private
-   */
-  this.pointFilterArgs_ = [];
-
-  if ($injector.has('ngeoPointfilter')) {
-    var filterElements = $injector.get('ngeoPointfilter').split(':');
-    var filterName = filterElements.shift();
-    var filter = this.$filter_(filterName);
-    goog.asserts.assertFunction(filter);
-    this.pointFilterFn_ = filter;
-    this.pointFilterArgs_ = filterElements;
-  } else {
-    this.pointFilterFn_ = null;
-  }
-
-  /**
-   * @type {ol.proj.Projection}
-   * @private
-   */
-  this.projection_;
-
-};
-
-
-/**
- * @param {ol.proj.Projection} projection Projection.
- * @export
- */
-ngeo.FeatureHelper.prototype.setProjection = function(projection) {
-  this.projection_ = projection;
-};
-
-
-// === STYLE METHODS ===
-
-
-/**
- * Set the style of a feature using its inner properties and depending on
- * its geometry type.
- * @param {ol.Feature} feature Feature.
- * @param {boolean=} opt_select Whether the feature should be rendered as
- *     selected, which includes additional vertex and halo styles.
- * @export
- */
-ngeo.FeatureHelper.prototype.setStyle = function(feature, opt_select) {
-  var styles = [this.getStyle(feature)];
-  if (opt_select) {
-    if (this.supportsVertex_(feature)) {
-      styles.push(this.getVertexStyle());
-    }
-    styles.unshift(this.getHaloStyle_(feature));
-  }
-  feature.setStyle(styles);
-};
-
-
-/**
- * Create and return a style object from a given feature using its inner
- * properties and depending on its geometry type.
- * @param {ol.Feature} feature Feature.
- * @return {ol.style.Style} The style object.
- * @export
- */
-ngeo.FeatureHelper.prototype.getStyle = function(feature) {
-  var type = this.getType(feature);
-  var style;
-
-  switch (type) {
-    case ngeo.GeometryType.LINE_STRING:
-      style = this.getLineStringStyle_(feature);
-      break;
-    case ngeo.GeometryType.POINT:
-      style = this.getPointStyle_(feature);
-      break;
-    case ngeo.GeometryType.CIRCLE:
-    case ngeo.GeometryType.POLYGON:
-    case ngeo.GeometryType.RECTANGLE:
-      style = this.getPolygonStyle_(feature);
-      break;
-    case ngeo.GeometryType.TEXT:
-      style = this.getTextStyle_(feature);
-      break;
-    default:
-      break;
-  }
-
-  goog.asserts.assert(style, 'Style should be thruthy');
-
-  return style;
-};
-
-
-/**
- * @param {ol.Feature} feature Feature with linestring geometry.
- * @return {ol.style.Style} Style.
- * @private
- */
-ngeo.FeatureHelper.prototype.getLineStringStyle_ = function(feature) {
-
-  var strokeWidth = this.getStrokeProperty(feature);
-  var showMeasure = this.getShowMeasureProperty(feature);
-  var color = this.getRGBAColorProperty(feature);
-
-  var options = {
-    stroke: new ol.style.Stroke({
-      color: color,
-      width: strokeWidth
-    })
-  };
-
-  if (showMeasure) {
-    var measure = this.getMeasure(feature);
-    options.text = this.createTextStyle_(measure, 10);
-  }
-
-  return new ol.style.Style(options);
-};
-
-
-/**
- * @param {ol.Feature} feature Feature with point geometry.
- * @return {ol.style.Style} Style.
- * @private
- */
-ngeo.FeatureHelper.prototype.getPointStyle_ = function(feature) {
-
-  var size = this.getSizeProperty(feature);
-  var color = this.getRGBAColorProperty(feature);
-
-  var options = {
-    image: new ol.style.Circle({
-      radius: size,
-      fill: new ol.style.Fill({
-        color: color
-      })
-    })
-  };
-
-  var showMeasure = this.getShowMeasureProperty(feature);
-
-  if (showMeasure) {
-    var fontSize = 10;
-    var measure = this.getMeasure(feature);
-    options.text = this.createTextStyle_(
-        measure,
-        fontSize,
-        undefined,
-        undefined,
-        undefined,
-        undefined,
-        -(size + fontSize / 2 + 4)
-    );
-  }
-
-  return new ol.style.Style(options);
-};
-
-
-/**
- * @param {ol.Feature} feature Feature with polygon geometry.
- * @return {ol.style.Style} Style.
- * @private
- */
-ngeo.FeatureHelper.prototype.getPolygonStyle_ = function(feature) {
-
-  var strokeWidth = this.getStrokeProperty(feature);
-  var opacity = this.getOpacityProperty(feature);
-  var color = this.getRGBAColorProperty(feature);
-
-  // fill color with opacity
-  var fillColor = color.slice();
-  fillColor[3] = opacity;
-
-  var options = {
-    fill: new ol.style.Fill({
-      color: fillColor
-    }),
-    stroke: new ol.style.Stroke({
-      color: color,
-      width: strokeWidth
-    })
-  };
-
-  var showMeasure = this.getShowMeasureProperty(feature);
-
-  if (showMeasure) {
-    var measure = this.getMeasure(feature);
-    options.text = this.createTextStyle_(measure, 10);
-  }
-
-  return new ol.style.Style(options);
-};
-
-
-/**
- * @param {ol.Feature} feature Feature with point geometry, rendered as text.
- * @return {ol.style.Style} Style.
- * @private
- */
-ngeo.FeatureHelper.prototype.getTextStyle_ = function(feature) {
-
-  var label = this.getNameProperty(feature);
-  var size = this.getSizeProperty(feature);
-  var angle = this.getAngleProperty(feature);
-  var color = this.getRGBAColorProperty(feature);
-
-  return new ol.style.Style({
-    text: this.createTextStyle_(label, size, angle, color)
-  });
-};
-
-
-/**
- * Create and return a style object to be used for vertex.
- * @param {boolean=} opt_incGeomFunc Whether to include the geometry function
- *     or not. One wants to use the geometry function when you want to draw
- *     the vertex of features that don't have point geometries. One doesn't
- *     want to include the geometry function if you just want to have the
- *     style object itself to be used to draw features that have point
- *     geometries. Defaults to `true`.
- * @return {ol.style.Style} Style.
- * @export
- */
-ngeo.FeatureHelper.prototype.getVertexStyle = function(opt_incGeomFunc) {
-  var incGeomFunc = opt_incGeomFunc !== undefined ? opt_incGeomFunc : true;
-
-  var options = {
-    image: new ol.style.RegularShape({
-      radius: 6,
-      points: 4,
-      angle: Math.PI / 4,
-      fill: new ol.style.Fill({
-        color: [255, 255, 255, 0.5]
-      }),
-      stroke: new ol.style.Stroke({
-        color: [0, 0, 0, 1]
-      })
-    })
-  };
-
-  if (incGeomFunc) {
-    options.geometry = function(feature) {
-      var geom = feature.getGeometry();
-
-      if (geom.getType() == ol.geom.GeometryType.POINT) {
-        return;
-      }
-
-      var coordinates;
-      if (geom instanceof ol.geom.LineString) {
-        coordinates = feature.getGeometry().getCoordinates();
-        return new ol.geom.MultiPoint(coordinates);
-      } else if (geom instanceof ol.geom.Polygon) {
-        coordinates = feature.getGeometry().getCoordinates()[0];
-        return new ol.geom.MultiPoint(coordinates);
-      } else {
-        return feature.getGeometry();
-      }
-    };
-  }
-
-  return new ol.style.Style(options);
-};
-
-
-/**
- * @param {ol.Feature} feature Feature.
- * @return {boolean} Whether the feature supports vertex or not.
- * @private
- */
-ngeo.FeatureHelper.prototype.supportsVertex_ = function(feature) {
-  var supported = [
-    ngeo.GeometryType.LINE_STRING,
-    ngeo.GeometryType.POLYGON,
-    ngeo.GeometryType.RECTANGLE
-  ];
-  var type = this.getType(feature);
-  return ol.array.includes(supported, type);
-};
-
-
-/**
- * @param {ol.Feature} feature Feature.
- * @return {ol.style.Style} Style.
- * @private
- */
-ngeo.FeatureHelper.prototype.getHaloStyle_ = function(feature) {
-  var type = this.getType(feature);
-  var style;
-  var haloSize = 3;
-  var size;
-
-  switch (type) {
-    case ngeo.GeometryType.POINT:
-      size = this.getSizeProperty(feature);
-      style = new ol.style.Style({
-        image: new ol.style.Circle({
-          radius: size + haloSize,
-          fill: new ol.style.Fill({
-            color: [255, 255, 255, 1]
-          })
-        })
-      });
-      break;
-    case ngeo.GeometryType.LINE_STRING:
-    case ngeo.GeometryType.CIRCLE:
-    case ngeo.GeometryType.POLYGON:
-    case ngeo.GeometryType.RECTANGLE:
-      var strokeWidth = this.getStrokeProperty(feature);
-      style = new ol.style.Style({
-        stroke: new ol.style.Stroke({
-          color: [255, 255, 255, 1],
-          width: strokeWidth + haloSize * 2
-        })
-      });
-      break;
-    case ngeo.GeometryType.TEXT:
-      var label = this.getNameProperty(feature);
-      size = this.getSizeProperty(feature);
-      var angle = this.getAngleProperty(feature);
-      var color = [255, 255, 255, 1];
-      style = new ol.style.Style({
-        text: this.createTextStyle_(label, size, angle, color, haloSize * 2)
-      });
-      break;
-    default:
-      break;
-  }
-
-  goog.asserts.assert(style, 'Style should be thruthy');
-
-  return style;
-};
-
-
-// === PROPERTY GETTERS ===
-
-/**
- * Delete the unwanted ol3 properties from the current feature then return the
- * properties.
- * @param {ol.Feature} feature Feature.
- * @return {!Object.<string, *>} Filtered properties of the current feature.
- * @export
- */
-ngeo.FeatureHelper.prototype.getFilteredFeatureValues = function(feature) {
-  var properties = feature.getProperties();
-  delete properties['boundedBy'];
-  delete properties[feature.getGeometryName()];
-  return properties;
-};
-
-/**
- * @param {ol.Feature} feature Feature.
- * @return {number} Angle.
- * @export
- */
-ngeo.FeatureHelper.prototype.getAngleProperty = function(feature) {
-  var angle = +(/** @type {string} */ (
-    feature.get(ngeo.FeatureProperties.ANGLE)));
-  goog.asserts.assertNumber(angle);
-  return angle;
-};
-
-
-/**
- * @param {ol.Feature} feature Feature.
- * @return {string} Color.
- * @export
- */
-ngeo.FeatureHelper.prototype.getColorProperty = function(feature) {
-
-  var color = /** @type {string} */ (feature.get(ngeo.FeatureProperties.COLOR));
-
-  goog.asserts.assertString(color);
-
-  return color;
-};
-
-
-/**
- * @param {ol.Feature} feature Feature.
- * @return {ol.Color} Color.
- * @export
- */
-ngeo.FeatureHelper.prototype.getRGBAColorProperty = function(feature) {
-  return ol.color.fromString(this.getColorProperty(feature));
-};
-
-
-/**
- * @param {ol.Feature} feature Feature.
- * @return {string} Name.
- * @export
- */
-ngeo.FeatureHelper.prototype.getNameProperty = function(feature) {
-  var name = /** @type {string} */ (feature.get(ngeo.FeatureProperties.NAME));
-  goog.asserts.assertString(name);
-  return name;
-};
-
-
-/**
- * @param {ol.Feature} feature Feature.
- * @return {number} Opacity.
- * @export
- */
-ngeo.FeatureHelper.prototype.getOpacityProperty = function(feature) {
-  var opacityStr = (/** @type {string} */ (
-      feature.get(ngeo.FeatureProperties.OPACITY)));
-  var opacity = opacityStr !== undefined ? +opacityStr : 1;
-  goog.asserts.assertNumber(opacity);
-  return opacity;
-};
-
-
-/**
- * @param {ol.Feature} feature Feature.
- * @return {boolean} Show measure.
- * @export
- */
-ngeo.FeatureHelper.prototype.getShowMeasureProperty = function(feature) {
-  var showMeasure = feature.get(ngeo.FeatureProperties.SHOW_MEASURE);
-  if (showMeasure === undefined) {
-    showMeasure = false;
-  } else if (typeof showMeasure === 'string') {
-    showMeasure = (showMeasure === 'true') ? true : false;
-  }
-  goog.asserts.assertBoolean(showMeasure);
-  return /** @type {boolean} */ (showMeasure);
-};
-
-
-/**
- * @param {ol.Feature} feature Feature.
- * @return {number} Size.
- * @export
- */
-ngeo.FeatureHelper.prototype.getSizeProperty = function(feature) {
-  var size = +(/** @type {string} */ (feature.get(ngeo.FeatureProperties.SIZE)));
-  goog.asserts.assertNumber(size);
-  return size;
-};
-
-
-/**
- * @param {ol.Feature} feature Feature.
- * @return {number} Stroke.
- * @export
- */
-ngeo.FeatureHelper.prototype.getStrokeProperty = function(feature) {
-  var stroke = +(/** @type {string} */ (
-      feature.get(ngeo.FeatureProperties.STROKE)));
-  goog.asserts.assertNumber(stroke);
-  return stroke;
-};
-
-
-// === EXPORT ===
-
-
-/**
- * Export features in the given format. The projection of the exported features
- * is: `EPSG:4326`.
- * @param {Array.<ol.Feature>} features Array of vector features.
- * @param {string} formatType Format type to export the features.
- * @export
- */
-ngeo.FeatureHelper.prototype.export = function(features, formatType) {
-  switch (formatType) {
-    case ngeo.FeatureHelper.FormatType.GPX:
-      this.exportGPX(features);
-      break;
-    case ngeo.FeatureHelper.FormatType.KML:
-      this.exportKML(features);
-      break;
-    default:
-      break;
-  }
-};
-
-
-/**
- * Export features in GPX and download the result to the browser. The
- * projection of the exported features is: `EPSG:4326`.
- * @param {Array.<ol.Feature>} features Array of vector features.
- * @export
- */
-ngeo.FeatureHelper.prototype.exportGPX = function(features) {
-  var format = new ol.format.GPX();
-  var mimeType = 'application/gpx+xml';
-  var fileName = 'export.gpx';
-  this.export_(features, format, fileName, mimeType);
-};
-
-
-/**
- * Export features in KML and download the result to the browser. The
- * projection of the exported features is: `EPSG:4326`.
- * @param {Array.<ol.Feature>} features Array of vector features.
- * @export
- */
-ngeo.FeatureHelper.prototype.exportKML = function(features) {
-  var format = new ol.format.KML();
-  var mimeType = 'application/vnd.google-earth.kml+xml';
-  var fileName = 'export.kml';
-  this.export_(features, format, fileName, mimeType);
-};
-
-
-/**
- * Export features using a given format to a specific filename and download
- * the result to the browser. The projection of the exported features is:
- * `EPSG:4326`.
- * @param {Array.<ol.Feature>} features Array of vector features.
- * @param {ol.format.Feature} format Format
- * @param {string} fileName Name of the file.
- * @param {string=} opt_mimeType Mime type. Defaults to 'text/plain'.
- * @private
- */
-ngeo.FeatureHelper.prototype.export_ = function(features, format, fileName,
-    opt_mimeType) {
-  var mimeType = opt_mimeType !== undefined ? opt_mimeType : 'text/plain';
-
-  // clone the features to apply the original style to the clone
-  // (the original may have select style active)
-  var clones = [];
-  var clone;
-  features.forEach(function(feature) {
-    clone = new ol.Feature(feature.getProperties());
-    this.setStyle(clone, false);
-    clones.push(clone);
-  }, this);
-
-  var writeOptions = this.projection_ ? {
-    dataProjection: 'EPSG:4326',
-    featureProjection: this.projection_
-  } : {};
-
-  var data = format.writeFeatures(clones, writeOptions);
-
-  $('<a />', {
-    'download': fileName,
-    'href': [
-      'data:',
-      mimeType,
-      ';charset=utf-8,',
-      encodeURIComponent(data)
-    ].join(''),
-    'mimeType': mimeType
-  })[0].click();
-};
-
-
-// === OTHER UTILITY METHODS ===
-
-
-/**
- * @param {string} text The text to display.
- * @param {number} size The size in `pt` of the text font.
- * @param {number=} opt_angle The angle in degrees of the text.
- * @param {ol.Color=} opt_color The color of the text.
- * @param {number=} opt_width The width of the outline color.
- * @param {number=} opt_offsetX The offset in pixels.
- * @param {number=} opt_offsetY The offset in pixels.
- * @return {ol.style.Text} Style.
- * @private
- */
-ngeo.FeatureHelper.prototype.createTextStyle_ = function(text, size,
-    opt_angle, opt_color, opt_width, opt_offsetX, opt_offsetY) {
-
-  var angle = opt_angle !== undefined ? opt_angle : 0;
-  var rotation = angle * Math.PI / 180;
-  var font = ['normal', size + 'pt', 'Arial'].join(' ');
-  var color = opt_color !== undefined ? opt_color : [0, 0, 0, 1];
-  var width = opt_width !== undefined ? opt_width : 3;
-  var offsetX = opt_offsetX !== undefined ? opt_offsetX : 0;
-  var offsetY = opt_offsetY !== undefined ? opt_offsetY : 0;
-
-  return new ol.style.Text({
-    font: font,
-    text: text,
-    fill: new ol.style.Fill({color: color}),
-    stroke: new ol.style.Stroke({color: [255, 255, 255, 1], width: width}),
-    rotation: rotation,
-    offsetX: offsetX,
-    offsetY: offsetY
-  });
-};
-
-
-/**
- * Get the measure of the given feature as a string. For points, you can format
- * the result by setting a filter to apply on the coordinate with the function
- * {@link ngeo.FeatureHelper.prototype.setPointFilterFn}.
- * @param {ol.Feature} feature Feature.
- * @return {string} Measure.
- * @export
- */
-ngeo.FeatureHelper.prototype.getMeasure = function(feature) {
-
-  var geometry = feature.getGeometry();
-  goog.asserts.assert(geometry, 'Geometry should be truthy');
-
-  var measure = '';
-
-  if (geometry instanceof ol.geom.Polygon) {
-    measure = ngeo.interaction.Measure.getFormattedArea(
-      geometry, this.projection_, this.decimals_, this.format_);
-  } else if (geometry instanceof ol.geom.LineString) {
-    measure = ngeo.interaction.Measure.getFormattedLength(
-      geometry, this.projection_, this.decimals_, this.format_);
-  } else if (geometry instanceof ol.geom.Point) {
-    if (this.pointFilterFn_ === null) {
-      measure = ngeo.interaction.Measure.getFormattedPoint(
-      geometry, this.projection_, this.decimals_);
-    } else {
-      var coordinates = geometry.getCoordinates();
-      var args = this.pointFilterArgs_.slice(0);
-      args.unshift(coordinates);
-      measure = this.pointFilterFn_.apply(this, args);
-    }
-  }
-
-  return measure;
-};
-
-
-/**
- * Return the type of geometry of a feature using its geometry property and
- * some inner properties.
- * @param {ol.Feature} feature Feature.
- * @return {string} The type of geometry.
- * @export
- */
-ngeo.FeatureHelper.prototype.getType = function(feature) {
-  var geometry = feature.getGeometry();
-  goog.asserts.assert(geometry, 'Geometry should be thruthy');
-
-  var type;
-
-  if (geometry instanceof ol.geom.Point) {
-    if (feature.get(ngeo.FeatureProperties.IS_TEXT)) {
-      type = ngeo.GeometryType.TEXT;
-    } else {
-      type = ngeo.GeometryType.POINT;
-    }
-  } else if (geometry instanceof ol.geom.Polygon) {
-    if (feature.get(ngeo.FeatureProperties.IS_CIRCLE)) {
-      type = ngeo.GeometryType.CIRCLE;
-    } else if (feature.get(ngeo.FeatureProperties.IS_RECTANGLE)) {
-      type = ngeo.GeometryType.RECTANGLE;
-    } else {
-      type = ngeo.GeometryType.POLYGON;
-    }
-  } else if (geometry instanceof ol.geom.LineString) {
-    type = ngeo.GeometryType.LINE_STRING;
-  }
-
-  goog.asserts.assert(type, 'Type should be thruthy');
-
-  return type;
-};
-
-
-/**
- * This method first checks if a feature's extent intersects with the map view
- * extent. If it doesn't, then the view gets recentered with an animation to
- * the center of the feature.
- * @param {ol.Feature} feature Feature.
- * @param {ol.Map} map Map.
- * @param {number=} opt_panDuration Pan animation duration. Defaults to `250`.
- * @export
- */
-ngeo.FeatureHelper.prototype.panMapToFeature = function(feature, map,
-    opt_panDuration) {
-
-  var panDuration = opt_panDuration !== undefined ? opt_panDuration : 250;
-  var size = map.getSize();
-  goog.asserts.assertArray(size);
-  var view = map.getView();
-  var extent = view.calculateExtent(size);
-  var geometry = feature.getGeometry();
-
-  if (!geometry.intersectsExtent(extent)) {
-    var mapCenter = view.getCenter();
-    goog.asserts.assertArray(mapCenter);
-
-    map.beforeRender(ol.animation.pan({
-      source: mapCenter,
-      duration: panDuration
-    }));
-
-    var featureCenter;
-    if (geometry instanceof ol.geom.LineString) {
-      featureCenter = geometry.getCoordinateAt(0.5);
-    } else if (geometry instanceof ol.geom.Polygon) {
-      featureCenter = geometry.getInteriorPoint().getCoordinates();
-    } else if (geometry instanceof ol.geom.Point) {
-      featureCenter = geometry.getCoordinates();
-    } else {
-      featureCenter = ol.extent.getCenter(geometry.getExtent());
-    }
-    map.getView().setCenter(featureCenter);
-  }
-};
-
-
-ngeo.module.service('ngeoFeatureHelper', ngeo.FeatureHelper);
-
-
-// === FORMAT TYPES ===
-
-
-/**
- * @enum {string}
- * @export
- */
-ngeo.FeatureHelper.FormatType = {
-  /**
-   * @type {string}
-   * @export
-   */
-  GPX: 'GPX',
-  /**
-   * @type {string}
-   * @export
-   */
-  KML: 'KML'
-};
-
-goog.provide('ngeo.drawpointDirective');
-
-goog.require('ngeo');
-goog.require('ol.geom.GeometryType');
-goog.require('ol.interaction.Draw');
-
-
-/**
- * @return {angular.Directive} The directive specs.
- * @ngInject
- * @ngdoc directive
- * @ngname ngeoDrawpoint
- */
-ngeo.drawpointDirective = function() {
-  return {
-    restrict: 'A',
-    require: '^^ngeoDrawfeature',
-    /**
-     * @param {!angular.Scope} $scope Scope.
-     * @param {angular.JQLite} element Element.
-     * @param {angular.Attributes} attrs Attributes.
-     * @param {ngeo.DrawfeatureController} drawFeatureCtrl Controller.
-     */
-    link: function($scope, element, attrs, drawFeatureCtrl) {
-
-      var drawPoint = new ol.interaction.Draw({
-        type: ol.geom.GeometryType.POINT
-      });
-
-      drawFeatureCtrl.registerInteraction(drawPoint);
-      drawFeatureCtrl.drawPoint = drawPoint;
-
-      ol.events.listen(
-          drawPoint,
-          ol.interaction.DrawEventType.DRAWEND,
-          drawFeatureCtrl.handleDrawEnd.bind(
-              drawFeatureCtrl, ngeo.GeometryType.POINT),
-          drawFeatureCtrl
-      );
-      ol.events.listen(
-          drawPoint,
-          ol.Object.getChangeEventType(
-              ol.interaction.InteractionProperty.ACTIVE),
-          drawFeatureCtrl.handleActiveChange,
-          drawFeatureCtrl
-      );
-    }
-  };
-};
-
-
-ngeo.module.directive('ngeoDrawpoint', ngeo.drawpointDirective);
-
-goog.provide('ngeo.drawrectangleDirective');
-
-goog.require('ngeo');
-goog.require('ol.geom.GeometryType');
-goog.require('ol.interaction.Draw');
-goog.require('ol.geom.Polygon');
-
-
-/**
- * @return {angular.Directive} The directive specs.
- * @ngInject
- * @ngdoc directive
- * @ngname ngeoDrawrectangle
- */
-ngeo.drawrectangleDirective = function() {
-  return {
-    restrict: 'A',
-    require: '^^ngeoDrawfeature',
-    /**
-     * @param {!angular.Scope} $scope Scope.
-     * @param {angular.JQLite} element Element.
-     * @param {angular.Attributes} attrs Attributes.
-     * @param {ngeo.DrawfeatureController} drawFeatureCtrl Controller.
-     */
-    link: function($scope, element, attrs, drawFeatureCtrl) {
-
-      var drawRectangle = new ol.interaction.Draw({
-        type: ol.geom.GeometryType.LINE_STRING,
-        geometryFunction: function(coordinates, geometry) {
-          if (!geometry) {
-            geometry = new ol.geom.Polygon(null);
-          }
-          var start = coordinates[0];
-          var end = coordinates[1];
-          geometry.setCoordinates([
-            [start, [start[0], end[1]], end, [end[0], start[1]], start]
-          ]);
-          return geometry;
-        },
-        maxPoints: 2
-      });
-
-      drawFeatureCtrl.registerInteraction(drawRectangle);
-      drawFeatureCtrl.drawRectangle = drawRectangle;
-
-      ol.events.listen(
-          drawRectangle,
-          ol.interaction.DrawEventType.DRAWEND,
-          drawFeatureCtrl.handleDrawEnd.bind(
-              drawFeatureCtrl, ngeo.GeometryType.RECTANGLE),
-          drawFeatureCtrl
-      );
-      ol.events.listen(
-          drawRectangle,
-          ol.Object.getChangeEventType(
-              ol.interaction.InteractionProperty.ACTIVE),
-          drawFeatureCtrl.handleActiveChange,
-          drawFeatureCtrl
-      );
-    }
-  };
-};
-
-
-ngeo.module.directive('ngeoDrawrectangle', ngeo.drawrectangleDirective);
-
-goog.provide('ngeo.drawtextDirective');
-
-goog.require('ngeo');
-goog.require('ol.geom.GeometryType');
-goog.require('ol.interaction.Draw');
-
-
-/**
- * @return {angular.Directive} The directive specs.
- * @ngInject
- * @ngdoc directive
- * @ngname ngeoDrawtext
- */
-ngeo.drawtextDirective = function() {
-  return {
-    restrict: 'A',
-    require: '^^ngeoDrawfeature',
-    /**
-     * @param {!angular.Scope} $scope Scope.
-     * @param {angular.JQLite} element Element.
-     * @param {angular.Attributes} attrs Attributes.
-     * @param {ngeo.DrawfeatureController} drawFeatureCtrl Controller.
-     */
-    link: function($scope, element, attrs, drawFeatureCtrl) {
-
-      var drawText = new ol.interaction.Draw({
-        type: ol.geom.GeometryType.POINT
-      });
-
-      drawFeatureCtrl.registerInteraction(drawText);
-      drawFeatureCtrl.drawText = drawText;
-
-      ol.events.listen(
-          drawText,
-          ol.interaction.DrawEventType.DRAWEND,
-          drawFeatureCtrl.handleDrawEnd.bind(
-              drawFeatureCtrl, ngeo.GeometryType.TEXT),
-          drawFeatureCtrl
-      );
-      ol.events.listen(
-          drawText,
-          ol.Object.getChangeEventType(
-              ol.interaction.InteractionProperty.ACTIVE),
-          drawFeatureCtrl.handleActiveChange,
-          drawFeatureCtrl
-      );
-    }
-  };
-};
-
-
-ngeo.module.directive('ngeoDrawtext', ngeo.drawtextDirective);
-
-goog.provide('ngeo.measureareaDirective');
-
-goog.require('ngeo');
-/** @suppress {extraRequire} */
-goog.require('ngeo.filters');
-goog.require('ngeo.interaction.MeasureArea');
-goog.require('ol.style.Style');
-
-
-/**
- * @param {angular.$compile} $compile Angular compile service.
- * @param {gettext} gettext Gettext service.
- * @param {angular.$filter} $filter Angular filter
- * @return {angular.Directive} The directive specs.
- * @ngInject
- * @ngdoc directive
- * @ngname ngeoDrawpoint
- */
-ngeo.measureareaDirective = function($compile, gettext, $filter) {
-  return {
-    restrict: 'A',
-    require: '^^ngeoDrawfeature',
-    /**
-     * @param {!angular.Scope} $scope Scope.
-     * @param {angular.JQLite} element Element.
-     * @param {angular.Attributes} attrs Attributes.
-     * @param {ngeo.DrawfeatureController} drawFeatureCtrl Controller.
-     */
-    link: function($scope, element, attrs, drawFeatureCtrl) {
-
-      var helpMsg = gettext('Click to start drawing area');
-      var contMsg = gettext('Click to continue drawing<br/>' +
-          'Double-click or click last starting point to finish');
-
-      var measureArea = new ngeo.interaction.MeasureArea($filter('ngeoUnitPrefix'), {
-        style: new ol.style.Style(),
-        startMsg: $compile('<div translate>' + helpMsg + '</div>')($scope)[0],
-        continueMsg: $compile('<div translate>' + contMsg + '</div>')($scope)[0]
-      });
-
-      drawFeatureCtrl.registerInteraction(measureArea);
-      drawFeatureCtrl.measureArea = measureArea;
-
-      ol.events.listen(
-          measureArea,
-          ngeo.MeasureEventType.MEASUREEND,
-          drawFeatureCtrl.handleDrawEnd.bind(
-              drawFeatureCtrl, ngeo.GeometryType.POLYGON),
-          drawFeatureCtrl
-      );
-      ol.events.listen(
-          measureArea,
-          ol.Object.getChangeEventType(
-              ol.interaction.InteractionProperty.ACTIVE),
-          drawFeatureCtrl.handleActiveChange,
-          drawFeatureCtrl
-      );
-    }
-  };
-};
-
-
-ngeo.module.directive('ngeoMeasurearea', ngeo.measureareaDirective);
-
 goog.provide('ngeo.interaction.DrawAzimut');
 goog.provide('ngeo.interaction.MeasureAzimut');
 
@@ -108212,30 +107242,54 @@ ngeo.interaction.MeasureAzimut.prototype.handleMeasure = function(callback) {
   var geom = /** @type {ol.geom.GeometryCollection} */
       (this.sketchFeature.getGeometry());
   var line = /** @type {ol.geom.LineString} */ (geom.getGeometries()[0]);
-  var output = this.formatMeasure_(line);
+  var output = ngeo.interaction.MeasureAzimut.getFormattedAzimutRadius(line, this.getMap().getView().getProjection(), this.decimals, this.format);
   callback(output, line.getLastCoordinate());
 };
 
 
 /**
- * Format measure output.
+ * Format measure output of azimut and radius.
+ * @param {ol.geom.LineString} line LineString.
+ * @param {ol.proj.Projection} projection Projection of the polygon coords.
+ * @param {?number} decimals Decimals.
+ * @param {ngeox.unitPrefix} format The format function.
+ * @return {string} Formated measure.
+ */
+ngeo.interaction.MeasureAzimut.getFormattedAzimutRadius = function(
+    line, projection, decimals, format) {
+
+  var output = ngeo.interaction.MeasureAzimut.getFormattedAzimut(line);
+
+  output += ', ' + ngeo.interaction.Measure.getFormattedLength(
+      line, projection, decimals, format);
+
+  return output;
+};
+
+
+/**
+ * Format measure output of azimut.
  * @param {ol.geom.LineString} line LineString.
  * @return {string} Formated measure.
- * @private
  */
-ngeo.interaction.MeasureAzimut.prototype.formatMeasure_ = function(line) {
+ngeo.interaction.MeasureAzimut.getFormattedAzimut = function(line) {
+  var azimut = ngeo.interaction.MeasureAzimut.getAzimut(line);
+  return azimut + '°';
+};
+
+
+/**
+ * Compute azimut from a 2 points line.
+ * @param {ol.geom.LineString} line LineString.
+ * @return {number} Azimut value.
+ */
+ngeo.interaction.MeasureAzimut.getAzimut = function(line) {
   var coords = line.getCoordinates();
   var dx = coords[1][0] - coords[0][0];
   var dy = coords[1][1] - coords[0][1];
   var rad = Math.acos(dy / Math.sqrt(dx * dx + dy * dy));
   var factor = dx > 0 ? 1 : -1;
-  var azimut = Math.round(factor * rad * 180 / Math.PI) % 360;
-  var output = azimut + '°';
-  var proj = this.getMap().getView().getProjection();
-  var dec = this.decimals;
-  output += '<br/>' + ngeo.interaction.Measure.getFormattedLength(
-      line, proj, dec, this.format);
-  return output;
+  return Math.round(factor * rad * 180 / Math.PI) % 360;
 };
 
 
@@ -108524,6 +107578,7 @@ ngeo.interaction.DrawAzimut.prototype.finishDrawing_ = function() {
   if (this.source_ !== null) {
     this.source_.addFeature(sketchFeature);
   }
+
   this.dispatchEvent(new ol.interaction.DrawEvent(
       ol.interaction.DrawEventType.DRAWEND, sketchFeature));
 };
@@ -108536,6 +107591,1108 @@ ngeo.interaction.DrawAzimut.prototype.setMap = function(map) {
   goog.base(this, 'setMap', map);
   this.updateState_();
 };
+
+goog.provide('ngeo.FeatureHelper');
+
+goog.require('ngeo');
+/** @suppress {extraRequire} */
+goog.require('ngeo.filters');
+goog.require('ngeo.interaction.Measure');
+goog.require('ngeo.interaction.MeasureAzimut');
+goog.require('ol.Feature');
+goog.require('ol.geom.LineString');
+goog.require('ol.geom.MultiPoint');
+goog.require('ol.geom.Point');
+goog.require('ol.geom.Polygon');
+goog.require('ol.format.GPX');
+goog.require('ol.format.KML');
+goog.require('ol.style.Circle');
+goog.require('ol.style.Fill');
+goog.require('ol.style.RegularShape');
+goog.require('ol.style.Stroke');
+goog.require('ol.style.Style');
+goog.require('ol.style.Text');
+
+
+/**
+ * Provides methods for features, such as:
+ *  - style setting / getting
+ *  - measurement
+ *  - export
+ *
+ * @constructor
+ * @param {angular.$injector} $injector Main injector.
+ * @param {angular.$filter} $filter Angular filter
+ * @ngdoc service
+ * @ngname ngeoFeatureHelper
+ * @ngInject
+ */
+ngeo.FeatureHelper = function($injector, $filter) {
+
+  /**
+   * @type {angular.$filter}
+   * @private
+   */
+  this.$filter_ = $filter;
+
+  /**
+   * @type {?number}
+   * @private
+   */
+  this.decimals_ = null;
+
+  if ($injector.has('ngeoMeasureDecimals')) {
+    this.decimals_ = $injector.get('ngeoMeasureDecimals');
+  }
+
+  /**
+   * @type {ngeox.unitPrefix}
+   */
+  this.format_ = $injector.get('$filter')('ngeoUnitPrefix');
+
+  /**
+   * Filter function to display point coordinates or null to don't use any
+   * filter.
+   * @type {function(*):string|null}
+   * @private
+   */
+  this.pointFilterFn_ = null;
+
+  /**
+   * Arguments to apply to the the point filter function.
+   * @type {Array.<*>}
+   * @private
+   */
+  this.pointFilterArgs_ = [];
+
+  if ($injector.has('ngeoPointfilter')) {
+    var filterElements = $injector.get('ngeoPointfilter').split(':');
+    var filterName = filterElements.shift();
+    var filter = this.$filter_(filterName);
+    goog.asserts.assertFunction(filter);
+    this.pointFilterFn_ = filter;
+    this.pointFilterArgs_ = filterElements;
+  } else {
+    this.pointFilterFn_ = null;
+  }
+
+  /**
+   * @type {ol.proj.Projection}
+   * @private
+   */
+  this.projection_;
+
+};
+
+
+/**
+ * @param {ol.proj.Projection} projection Projection.
+ * @export
+ */
+ngeo.FeatureHelper.prototype.setProjection = function(projection) {
+  this.projection_ = projection;
+};
+
+
+// === STYLE METHODS ===
+
+
+/**
+ * Set the style of a feature using its inner properties and depending on
+ * its geometry type.
+ * @param {ol.Feature} feature Feature.
+ * @param {boolean=} opt_select Whether the feature should be rendered as
+ *     selected, which includes additional vertex and halo styles.
+ * @export
+ */
+ngeo.FeatureHelper.prototype.setStyle = function(feature, opt_select) {
+  var styles = this.getStyle(feature);
+  if (opt_select) {
+    if (this.supportsVertex_(feature)) {
+      styles.push(this.getVertexStyle());
+    }
+    styles.unshift(this.getHaloStyle_(feature));
+  }
+  feature.setStyle(styles);
+};
+
+
+/**
+ * Create and return a style object from a given feature using its inner
+ * properties and depending on its geometry type.
+ * @param {ol.Feature} feature Feature.
+ * @return {Array.<ol.style.Style>} The style object.
+ * @export
+ */
+ngeo.FeatureHelper.prototype.getStyle = function(feature) {
+  var type = this.getType(feature);
+  var style;
+
+  switch (type) {
+    case ngeo.GeometryType.LINE_STRING:
+      style = this.getLineStringStyle_(feature);
+      break;
+    case ngeo.GeometryType.POINT:
+      style = this.getPointStyle_(feature);
+      break;
+    case ngeo.GeometryType.CIRCLE:
+    case ngeo.GeometryType.POLYGON:
+    case ngeo.GeometryType.RECTANGLE:
+      style = this.getPolygonStyle_(feature);
+      break;
+    case ngeo.GeometryType.TEXT:
+      style = this.getTextStyle_(feature);
+      break;
+    default:
+      break;
+  }
+
+  goog.asserts.assert(style, 'Style should be thruthy');
+
+  var styles;
+  if (style.constructor === Array) {
+    styles = /** @type {Array.<ol.style.Style>}*/ (style);
+  } else {
+    styles = [style];
+  }
+
+  return styles;
+};
+
+
+/**
+ * @param {ol.Feature} feature Feature with linestring geometry.
+ * @return {ol.style.Style} Style.
+ * @private
+ */
+ngeo.FeatureHelper.prototype.getLineStringStyle_ = function(feature) {
+
+  var strokeWidth = this.getStrokeProperty(feature);
+  var showMeasure = this.getShowMeasureProperty(feature);
+  var color = this.getRGBAColorProperty(feature);
+
+  var options = {
+    stroke: new ol.style.Stroke({
+      color: color,
+      width: strokeWidth
+    })
+  };
+
+  if (showMeasure) {
+    options.text = this.createTextStyle_({
+      text: this.getMeasure(feature)
+    });
+  }
+
+  return new ol.style.Style(options);
+};
+
+
+/**
+ * @param {ol.Feature} feature Feature with point geometry.
+ * @return {ol.style.Style} Style.
+ * @private
+ */
+ngeo.FeatureHelper.prototype.getPointStyle_ = function(feature) {
+
+  var size = this.getSizeProperty(feature);
+  var color = this.getRGBAColorProperty(feature);
+
+  var options = {
+    image: new ol.style.Circle({
+      radius: size,
+      fill: new ol.style.Fill({
+        color: color
+      })
+    })
+  };
+
+  var showMeasure = this.getShowMeasureProperty(feature);
+
+  if (showMeasure) {
+    options.text = this.createTextStyle_({
+      text: this.getMeasure(feature),
+      offsetY: -(size + 10 / 2 + 4)
+    });
+  }
+
+  return new ol.style.Style(options);
+};
+
+
+/**
+ * @param {ol.Feature} feature Feature with polygon geometry.
+ * @return {Array.<ol.style.Style>} Style.
+ * @private
+ */
+ngeo.FeatureHelper.prototype.getPolygonStyle_ = function(feature) {
+
+  var strokeWidth = this.getStrokeProperty(feature);
+  var opacity = this.getOpacityProperty(feature);
+  var color = this.getRGBAColorProperty(feature);
+  var showMeasure = this.getShowMeasureProperty(feature);
+
+
+  // fill color with opacity
+  var fillColor = color.slice();
+  fillColor[3] = opacity;
+
+  var azimut = /** @type {number} */ (
+    feature.get(ngeo.FeatureProperties.AZIMUT));
+
+  var styles = [new ol.style.Style({
+    fill: new ol.style.Fill({
+      color: fillColor
+    }),
+    stroke: new ol.style.Stroke({
+      color: color,
+      width: strokeWidth
+    })
+  })];
+
+  if (showMeasure) {
+    if (azimut !== undefined) {
+      // Radius style:
+      var line = this.getRadiusLine(feature, azimut);
+      var length = ngeo.interaction.Measure.getFormattedLength(
+        line, this.projection_, this.decimals_, this.format_);
+
+      styles.push(new ol.style.Style({
+        geometry: line,
+        fill: new ol.style.Fill({
+          color: fillColor
+        }),
+        stroke: new ol.style.Stroke({
+          color: color,
+          width: strokeWidth
+        }),
+        text: this.createTextStyle_({
+          text: length,
+          angle: ((azimut % 180) + 180) % 180 - 90
+        })
+      }));
+
+      // Azimut style
+      styles.push(new ol.style.Style({
+        geometry: new ol.geom.Point(line.getLastCoordinate()),
+        text: this.createTextStyle_({
+          text: azimut + '°',
+          size: 10,
+          offsetX: Math.cos((azimut - 90) * Math.PI / 180) * 20,
+          offsetY: Math.sin((azimut - 90) * Math.PI / 180) * 20
+        })
+      }));
+    } else {
+      styles.push(new ol.style.Style({
+        text: this.createTextStyle_({
+          text: this.getMeasure(feature)
+        })
+      }));
+    }
+  }
+
+  return styles;
+};
+
+
+/**
+ * @param {ol.Feature} feature Feature with point geometry, rendered as text.
+ * @return {ol.style.Style} Style.
+ * @private
+ */
+ngeo.FeatureHelper.prototype.getTextStyle_ = function(feature) {
+
+  return new ol.style.Style({
+    text: this.createTextStyle_({
+      text: this.getNameProperty(feature),
+      size: this.getSizeProperty(feature),
+      angle: this.getAngleProperty(feature),
+      color: this.getRGBAColorProperty(feature)
+    })
+  });
+};
+
+
+/**
+ * Create and return a style object to be used for vertex.
+ * @param {boolean=} opt_incGeomFunc Whether to include the geometry function
+ *     or not. One wants to use the geometry function when you want to draw
+ *     the vertex of features that don't have point geometries. One doesn't
+ *     want to include the geometry function if you just want to have the
+ *     style object itself to be used to draw features that have point
+ *     geometries. Defaults to `true`.
+ * @return {ol.style.Style} Style.
+ * @export
+ */
+ngeo.FeatureHelper.prototype.getVertexStyle = function(opt_incGeomFunc) {
+  var incGeomFunc = opt_incGeomFunc !== undefined ? opt_incGeomFunc : true;
+
+  var options = {
+    image: new ol.style.RegularShape({
+      radius: 6,
+      points: 4,
+      angle: Math.PI / 4,
+      fill: new ol.style.Fill({
+        color: [255, 255, 255, 0.5]
+      }),
+      stroke: new ol.style.Stroke({
+        color: [0, 0, 0, 1]
+      })
+    })
+  };
+
+  if (incGeomFunc) {
+    options.geometry = function(feature) {
+      var geom = feature.getGeometry();
+
+      if (geom.getType() == ol.geom.GeometryType.POINT) {
+        return;
+      }
+
+      var coordinates;
+      if (geom instanceof ol.geom.LineString) {
+        coordinates = feature.getGeometry().getCoordinates();
+        return new ol.geom.MultiPoint(coordinates);
+      } else if (geom instanceof ol.geom.Polygon) {
+        coordinates = feature.getGeometry().getCoordinates()[0];
+        return new ol.geom.MultiPoint(coordinates);
+      } else {
+        return feature.getGeometry();
+      }
+    };
+  }
+
+  return new ol.style.Style(options);
+};
+
+
+/**
+ * @param {ol.Feature} feature Feature.
+ * @return {boolean} Whether the feature supports vertex or not.
+ * @private
+ */
+ngeo.FeatureHelper.prototype.supportsVertex_ = function(feature) {
+  var supported = [
+    ngeo.GeometryType.LINE_STRING,
+    ngeo.GeometryType.POLYGON,
+    ngeo.GeometryType.RECTANGLE
+  ];
+  var type = this.getType(feature);
+  return ol.array.includes(supported, type);
+};
+
+
+/**
+ * @param {ol.Feature} feature Feature.
+ * @return {ol.style.Style} Style.
+ * @private
+ */
+ngeo.FeatureHelper.prototype.getHaloStyle_ = function(feature) {
+  var type = this.getType(feature);
+  var style;
+  var haloSize = 3;
+
+  switch (type) {
+    case ngeo.GeometryType.POINT:
+      var size = this.getSizeProperty(feature);
+      style = new ol.style.Style({
+        image: new ol.style.Circle({
+          radius: size + haloSize,
+          fill: new ol.style.Fill({
+            color: [255, 255, 255, 1]
+          })
+        })
+      });
+      break;
+    case ngeo.GeometryType.LINE_STRING:
+    case ngeo.GeometryType.CIRCLE:
+    case ngeo.GeometryType.POLYGON:
+    case ngeo.GeometryType.RECTANGLE:
+      var strokeWidth = this.getStrokeProperty(feature);
+      style = new ol.style.Style({
+        stroke: new ol.style.Stroke({
+          color: [255, 255, 255, 1],
+          width: strokeWidth + haloSize * 2
+        })
+      });
+      break;
+    case ngeo.GeometryType.TEXT:
+      style = new ol.style.Style({
+        text: this.createTextStyle_({
+          text: this.getNameProperty(feature),
+          size: this.getSizeProperty(feature),
+          angle: this.getAngleProperty(feature),
+          width: haloSize * 3
+        })
+      });
+      break;
+    default:
+      break;
+  }
+
+  goog.asserts.assert(style, 'Style should be thruthy');
+
+  return style;
+};
+
+
+// === PROPERTY GETTERS ===
+
+/**
+ * Delete the unwanted ol3 properties from the current feature then return the
+ * properties.
+ * @param {ol.Feature} feature Feature.
+ * @return {!Object.<string, *>} Filtered properties of the current feature.
+ * @export
+ */
+ngeo.FeatureHelper.prototype.getFilteredFeatureValues = function(feature) {
+  var properties = feature.getProperties();
+  delete properties['boundedBy'];
+  delete properties[feature.getGeometryName()];
+  return properties;
+};
+
+/**
+ * @param {ol.Feature} feature Feature.
+ * @return {number} Angle.
+ * @export
+ */
+ngeo.FeatureHelper.prototype.getAngleProperty = function(feature) {
+  var angle = +(/** @type {string} */ (
+    feature.get(ngeo.FeatureProperties.ANGLE)));
+  goog.asserts.assertNumber(angle);
+  return angle;
+};
+
+
+/**
+ * @param {ol.Feature} feature Feature.
+ * @return {string} Color.
+ * @export
+ */
+ngeo.FeatureHelper.prototype.getColorProperty = function(feature) {
+
+  var color = /** @type {string} */ (feature.get(ngeo.FeatureProperties.COLOR));
+
+  goog.asserts.assertString(color);
+
+  return color;
+};
+
+
+/**
+ * @param {ol.Feature} feature Feature.
+ * @return {ol.Color} Color.
+ * @export
+ */
+ngeo.FeatureHelper.prototype.getRGBAColorProperty = function(feature) {
+  return ol.color.fromString(this.getColorProperty(feature));
+};
+
+
+/**
+ * @param {ol.Feature} feature Feature.
+ * @return {string} Name.
+ * @export
+ */
+ngeo.FeatureHelper.prototype.getNameProperty = function(feature) {
+  var name = /** @type {string} */ (feature.get(ngeo.FeatureProperties.NAME));
+  goog.asserts.assertString(name);
+  return name;
+};
+
+
+/**
+ * @param {ol.Feature} feature Feature.
+ * @return {number} Opacity.
+ * @export
+ */
+ngeo.FeatureHelper.prototype.getOpacityProperty = function(feature) {
+  var opacityStr = (/** @type {string} */ (
+      feature.get(ngeo.FeatureProperties.OPACITY)));
+  var opacity = opacityStr !== undefined ? +opacityStr : 1;
+  goog.asserts.assertNumber(opacity);
+  return opacity;
+};
+
+
+/**
+ * @param {ol.Feature} feature Feature.
+ * @return {boolean} Show measure.
+ * @export
+ */
+ngeo.FeatureHelper.prototype.getShowMeasureProperty = function(feature) {
+  var showMeasure = feature.get(ngeo.FeatureProperties.SHOW_MEASURE);
+  if (showMeasure === undefined) {
+    showMeasure = false;
+  } else if (typeof showMeasure === 'string') {
+    showMeasure = (showMeasure === 'true') ? true : false;
+  }
+  goog.asserts.assertBoolean(showMeasure);
+  return /** @type {boolean} */ (showMeasure);
+};
+
+
+/**
+ * @param {ol.Feature} feature Feature.
+ * @return {number} Size.
+ * @export
+ */
+ngeo.FeatureHelper.prototype.getSizeProperty = function(feature) {
+  var size = +(/** @type {string} */ (feature.get(ngeo.FeatureProperties.SIZE)));
+  goog.asserts.assertNumber(size);
+  return size;
+};
+
+
+/**
+ * @param {ol.Feature} feature Feature.
+ * @return {number} Stroke.
+ * @export
+ */
+ngeo.FeatureHelper.prototype.getStrokeProperty = function(feature) {
+  var stroke = +(/** @type {string} */ (
+      feature.get(ngeo.FeatureProperties.STROKE)));
+  goog.asserts.assertNumber(stroke);
+  return stroke;
+};
+
+
+// === EXPORT ===
+
+
+/**
+ * Export features in the given format. The projection of the exported features
+ * is: `EPSG:4326`.
+ * @param {Array.<ol.Feature>} features Array of vector features.
+ * @param {string} formatType Format type to export the features.
+ * @export
+ */
+ngeo.FeatureHelper.prototype.export = function(features, formatType) {
+  switch (formatType) {
+    case ngeo.FeatureHelper.FormatType.GPX:
+      this.exportGPX(features);
+      break;
+    case ngeo.FeatureHelper.FormatType.KML:
+      this.exportKML(features);
+      break;
+    default:
+      break;
+  }
+};
+
+
+/**
+ * Export features in GPX and download the result to the browser. The
+ * projection of the exported features is: `EPSG:4326`.
+ * @param {Array.<ol.Feature>} features Array of vector features.
+ * @export
+ */
+ngeo.FeatureHelper.prototype.exportGPX = function(features) {
+  var format = new ol.format.GPX();
+  var mimeType = 'application/gpx+xml';
+  var fileName = 'export.gpx';
+  this.export_(features, format, fileName, mimeType);
+};
+
+
+/**
+ * Export features in KML and download the result to the browser. The
+ * projection of the exported features is: `EPSG:4326`.
+ * @param {Array.<ol.Feature>} features Array of vector features.
+ * @export
+ */
+ngeo.FeatureHelper.prototype.exportKML = function(features) {
+  var format = new ol.format.KML();
+  var mimeType = 'application/vnd.google-earth.kml+xml';
+  var fileName = 'export.kml';
+  this.export_(features, format, fileName, mimeType);
+};
+
+
+/**
+ * Export features using a given format to a specific filename and download
+ * the result to the browser. The projection of the exported features is:
+ * `EPSG:4326`.
+ * @param {Array.<ol.Feature>} features Array of vector features.
+ * @param {ol.format.Feature} format Format
+ * @param {string} fileName Name of the file.
+ * @param {string=} opt_mimeType Mime type. Defaults to 'text/plain'.
+ * @private
+ */
+ngeo.FeatureHelper.prototype.export_ = function(features, format, fileName,
+    opt_mimeType) {
+  var mimeType = opt_mimeType !== undefined ? opt_mimeType : 'text/plain';
+
+  // clone the features to apply the original style to the clone
+  // (the original may have select style active)
+  var clones = [];
+  var clone;
+  features.forEach(function(feature) {
+    clone = new ol.Feature(feature.getProperties());
+    this.setStyle(clone, false);
+    clones.push(clone);
+  }, this);
+
+  var writeOptions = this.projection_ ? {
+    dataProjection: 'EPSG:4326',
+    featureProjection: this.projection_
+  } : {};
+
+  var data = format.writeFeatures(clones, writeOptions);
+
+  $('<a />', {
+    'download': fileName,
+    'href': [
+      'data:',
+      mimeType,
+      ';charset=utf-8,',
+      encodeURIComponent(data)
+    ].join(''),
+    'mimeType': mimeType
+  })[0].click();
+};
+
+
+// === OTHER UTILITY METHODS ===
+
+
+/**
+ * @param {ngeox.style.TextOptions} options Options.
+ * @return {ol.style.Text} Style.
+ * @private
+ */
+ngeo.FeatureHelper.prototype.createTextStyle_ = function(options) {
+  if (options.angle) {
+    var angle = options.angle !== undefined ? options.angle : 0;
+    var rotation = angle * Math.PI / 180;
+    options.rotation = rotation;
+    delete options.angle;
+  }
+
+  options.font = ['normal', (options.size || 10) + 'pt', 'Arial'].join(' ');
+
+  if (options.color) {
+    options.fill = new ol.style.Fill({color: options.color || [0, 0, 0, 1]});
+    delete options.color;
+  }
+
+  options.stroke = new ol.style.Stroke({
+    color: [255, 255, 255, 1],
+    width: options.width || 3
+  });
+  delete options.width;
+
+  return new ol.style.Text(options);
+};
+
+
+/**
+ * Get the measure of the given feature as a string. For points, you can format
+ * the result by setting a filter to apply on the coordinate with the function
+ * {@link ngeo.FeatureHelper.prototype.setPointFilterFn}.
+ * @param {ol.Feature} feature Feature.
+ * @return {string} Measure.
+ * @export
+ */
+ngeo.FeatureHelper.prototype.getMeasure = function(feature) {
+
+  var geometry = feature.getGeometry();
+  goog.asserts.assert(geometry, 'Geometry should be truthy');
+
+  var measure = '';
+
+  if (geometry instanceof ol.geom.Polygon) {
+    if (this.getType(feature) === ngeo.GeometryType.CIRCLE) {
+      var azimut = /** @type {number} */ (
+        feature.get(ngeo.FeatureProperties.AZIMUT));
+      var line = this.getRadiusLine(feature, azimut);
+
+      measure = ngeo.interaction.MeasureAzimut.getFormattedAzimutRadius(
+        line, this.projection_, this.decimals_, this.format_);
+    } else {
+      measure = ngeo.interaction.Measure.getFormattedArea(
+        geometry, this.projection_, this.decimals_, this.format_);
+    }
+  } else if (geometry instanceof ol.geom.LineString) {
+    measure = ngeo.interaction.Measure.getFormattedLength(
+      geometry, this.projection_, this.decimals_, this.format_);
+  } else if (geometry instanceof ol.geom.Point) {
+    if (this.pointFilterFn_ === null) {
+      measure = ngeo.interaction.Measure.getFormattedPoint(
+      geometry, this.projection_, this.decimals_);
+    } else {
+      var coordinates = geometry.getCoordinates();
+      var args = this.pointFilterArgs_.slice(0);
+      args.unshift(coordinates);
+      measure = this.pointFilterFn_.apply(this, args);
+    }
+  }
+
+  return measure;
+};
+
+
+/**
+ * Return the type of geometry of a feature using its geometry property and
+ * some inner properties.
+ * @param {ol.Feature} feature Feature.
+ * @return {string} The type of geometry.
+ * @export
+ */
+ngeo.FeatureHelper.prototype.getType = function(feature) {
+  var geometry = feature.getGeometry();
+  goog.asserts.assert(geometry, 'Geometry should be thruthy');
+
+  var type;
+
+  if (geometry instanceof ol.geom.Point) {
+    if (feature.get(ngeo.FeatureProperties.IS_TEXT)) {
+      type = ngeo.GeometryType.TEXT;
+    } else {
+      type = ngeo.GeometryType.POINT;
+    }
+  } else if (geometry instanceof ol.geom.Polygon) {
+    if (feature.get(ngeo.FeatureProperties.IS_CIRCLE)) {
+      type = ngeo.GeometryType.CIRCLE;
+    } else if (feature.get(ngeo.FeatureProperties.IS_RECTANGLE)) {
+      type = ngeo.GeometryType.RECTANGLE;
+    } else {
+      type = ngeo.GeometryType.POLYGON;
+    }
+  } else if (geometry instanceof ol.geom.LineString) {
+    type = ngeo.GeometryType.LINE_STRING;
+  }
+
+  goog.asserts.assert(type, 'Type should be thruthy');
+
+  return type;
+};
+
+
+/**
+ * This method first checks if a feature's extent intersects with the map view
+ * extent. If it doesn't, then the view gets recentered with an animation to
+ * the center of the feature.
+ * @param {ol.Feature} feature Feature.
+ * @param {ol.Map} map Map.
+ * @param {number=} opt_panDuration Pan animation duration. Defaults to `250`.
+ * @export
+ */
+ngeo.FeatureHelper.prototype.panMapToFeature = function(feature, map,
+    opt_panDuration) {
+
+  var panDuration = opt_panDuration !== undefined ? opt_panDuration : 250;
+  var size = map.getSize();
+  goog.asserts.assertArray(size);
+  var view = map.getView();
+  var extent = view.calculateExtent(size);
+  var geometry = feature.getGeometry();
+
+  if (!geometry.intersectsExtent(extent)) {
+    var mapCenter = view.getCenter();
+    goog.asserts.assertArray(mapCenter);
+
+    map.beforeRender(ol.animation.pan({
+      source: mapCenter,
+      duration: panDuration
+    }));
+
+    var featureCenter;
+    if (geometry instanceof ol.geom.LineString) {
+      featureCenter = geometry.getCoordinateAt(0.5);
+    } else if (geometry instanceof ol.geom.Polygon) {
+      featureCenter = geometry.getInteriorPoint().getCoordinates();
+    } else if (geometry instanceof ol.geom.Point) {
+      featureCenter = geometry.getCoordinates();
+    } else {
+      featureCenter = ol.extent.getCenter(geometry.getExtent());
+    }
+    map.getView().setCenter(featureCenter);
+  }
+};
+
+
+/**
+ * This method generates a line string geometry that represents the radius for
+ * a given azimut. It expects the input geometry to be a circle.
+ * @param {ol.Feature} feature Feature.
+ * @param {number} azimut Azimut in degrees.
+ * @return {ol.geom.LineString} The line geometry.
+ */
+ngeo.FeatureHelper.prototype.getRadiusLine = function(feature, azimut) {
+  var geometry = feature.getGeometry();
+  // Determine the radius for the circle
+  var extent = geometry.getExtent();
+  var radius = (extent[3] - extent[1]) / 2;
+
+  var center = ol.extent.getCenter(geometry.getExtent());
+
+  var x = Math.cos((azimut - 90) * Math.PI / 180) * radius;
+  var y = -Math.sin((azimut - 90) * Math.PI / 180) * radius;
+  var endPoint = [x + center[0], y + center[1]];
+  return new ol.geom.LineString([center, endPoint]);
+};
+
+
+ngeo.module.service('ngeoFeatureHelper', ngeo.FeatureHelper);
+
+
+// === FORMAT TYPES ===
+
+
+/**
+ * @enum {string}
+ * @export
+ */
+ngeo.FeatureHelper.FormatType = {
+  /**
+   * @type {string}
+   * @export
+   */
+  GPX: 'GPX',
+  /**
+   * @type {string}
+   * @export
+   */
+  KML: 'KML'
+};
+
+goog.provide('ngeo.drawpointDirective');
+
+goog.require('ngeo');
+goog.require('ol.geom.GeometryType');
+goog.require('ol.interaction.Draw');
+
+
+/**
+ * @return {angular.Directive} The directive specs.
+ * @ngInject
+ * @ngdoc directive
+ * @ngname ngeoDrawpoint
+ */
+ngeo.drawpointDirective = function() {
+  return {
+    restrict: 'A',
+    require: '^^ngeoDrawfeature',
+    /**
+     * @param {!angular.Scope} $scope Scope.
+     * @param {angular.JQLite} element Element.
+     * @param {angular.Attributes} attrs Attributes.
+     * @param {ngeo.DrawfeatureController} drawFeatureCtrl Controller.
+     */
+    link: function($scope, element, attrs, drawFeatureCtrl) {
+
+      var drawPoint = new ol.interaction.Draw({
+        type: ol.geom.GeometryType.POINT
+      });
+
+      drawFeatureCtrl.registerInteraction(drawPoint);
+      drawFeatureCtrl.drawPoint = drawPoint;
+
+      ol.events.listen(
+          drawPoint,
+          ol.interaction.DrawEventType.DRAWEND,
+          drawFeatureCtrl.handleDrawEnd.bind(
+              drawFeatureCtrl, ngeo.GeometryType.POINT),
+          drawFeatureCtrl
+      );
+      ol.events.listen(
+          drawPoint,
+          ol.Object.getChangeEventType(
+              ol.interaction.InteractionProperty.ACTIVE),
+          drawFeatureCtrl.handleActiveChange,
+          drawFeatureCtrl
+      );
+    }
+  };
+};
+
+
+ngeo.module.directive('ngeoDrawpoint', ngeo.drawpointDirective);
+
+goog.provide('ngeo.drawrectangleDirective');
+
+goog.require('ngeo');
+goog.require('ol.geom.GeometryType');
+goog.require('ol.interaction.Draw');
+goog.require('ol.geom.Polygon');
+
+
+/**
+ * @return {angular.Directive} The directive specs.
+ * @ngInject
+ * @ngdoc directive
+ * @ngname ngeoDrawrectangle
+ */
+ngeo.drawrectangleDirective = function() {
+  return {
+    restrict: 'A',
+    require: '^^ngeoDrawfeature',
+    /**
+     * @param {!angular.Scope} $scope Scope.
+     * @param {angular.JQLite} element Element.
+     * @param {angular.Attributes} attrs Attributes.
+     * @param {ngeo.DrawfeatureController} drawFeatureCtrl Controller.
+     */
+    link: function($scope, element, attrs, drawFeatureCtrl) {
+
+      var drawRectangle = new ol.interaction.Draw({
+        type: ol.geom.GeometryType.LINE_STRING,
+        geometryFunction: function(coordinates, geometry) {
+          if (!geometry) {
+            geometry = new ol.geom.Polygon(null);
+          }
+          var start = coordinates[0];
+          var end = coordinates[1];
+          geometry.setCoordinates([
+            [start, [start[0], end[1]], end, [end[0], start[1]], start]
+          ]);
+          return geometry;
+        },
+        maxPoints: 2
+      });
+
+      drawFeatureCtrl.registerInteraction(drawRectangle);
+      drawFeatureCtrl.drawRectangle = drawRectangle;
+
+      ol.events.listen(
+          drawRectangle,
+          ol.interaction.DrawEventType.DRAWEND,
+          drawFeatureCtrl.handleDrawEnd.bind(
+              drawFeatureCtrl, ngeo.GeometryType.RECTANGLE),
+          drawFeatureCtrl
+      );
+      ol.events.listen(
+          drawRectangle,
+          ol.Object.getChangeEventType(
+              ol.interaction.InteractionProperty.ACTIVE),
+          drawFeatureCtrl.handleActiveChange,
+          drawFeatureCtrl
+      );
+    }
+  };
+};
+
+
+ngeo.module.directive('ngeoDrawrectangle', ngeo.drawrectangleDirective);
+
+goog.provide('ngeo.drawtextDirective');
+
+goog.require('ngeo');
+goog.require('ol.geom.GeometryType');
+goog.require('ol.interaction.Draw');
+
+
+/**
+ * @return {angular.Directive} The directive specs.
+ * @ngInject
+ * @ngdoc directive
+ * @ngname ngeoDrawtext
+ */
+ngeo.drawtextDirective = function() {
+  return {
+    restrict: 'A',
+    require: '^^ngeoDrawfeature',
+    /**
+     * @param {!angular.Scope} $scope Scope.
+     * @param {angular.JQLite} element Element.
+     * @param {angular.Attributes} attrs Attributes.
+     * @param {ngeo.DrawfeatureController} drawFeatureCtrl Controller.
+     */
+    link: function($scope, element, attrs, drawFeatureCtrl) {
+
+      var drawText = new ol.interaction.Draw({
+        type: ol.geom.GeometryType.POINT
+      });
+
+      drawFeatureCtrl.registerInteraction(drawText);
+      drawFeatureCtrl.drawText = drawText;
+
+      ol.events.listen(
+          drawText,
+          ol.interaction.DrawEventType.DRAWEND,
+          drawFeatureCtrl.handleDrawEnd.bind(
+              drawFeatureCtrl, ngeo.GeometryType.TEXT),
+          drawFeatureCtrl
+      );
+      ol.events.listen(
+          drawText,
+          ol.Object.getChangeEventType(
+              ol.interaction.InteractionProperty.ACTIVE),
+          drawFeatureCtrl.handleActiveChange,
+          drawFeatureCtrl
+      );
+    }
+  };
+};
+
+
+ngeo.module.directive('ngeoDrawtext', ngeo.drawtextDirective);
+
+goog.provide('ngeo.measureareaDirective');
+
+goog.require('ngeo');
+/** @suppress {extraRequire} */
+goog.require('ngeo.filters');
+goog.require('ngeo.interaction.MeasureArea');
+goog.require('ol.style.Style');
+
+
+/**
+ * @param {angular.$compile} $compile Angular compile service.
+ * @param {gettext} gettext Gettext service.
+ * @param {angular.$filter} $filter Angular filter
+ * @return {angular.Directive} The directive specs.
+ * @ngInject
+ * @ngdoc directive
+ * @ngname ngeoDrawpoint
+ */
+ngeo.measureareaDirective = function($compile, gettext, $filter) {
+  return {
+    restrict: 'A',
+    require: '^^ngeoDrawfeature',
+    /**
+     * @param {!angular.Scope} $scope Scope.
+     * @param {angular.JQLite} element Element.
+     * @param {angular.Attributes} attrs Attributes.
+     * @param {ngeo.DrawfeatureController} drawFeatureCtrl Controller.
+     */
+    link: function($scope, element, attrs, drawFeatureCtrl) {
+
+      var helpMsg = gettext('Click to start drawing area');
+      var contMsg = gettext('Click to continue drawing<br/>' +
+          'Double-click or click last starting point to finish');
+
+      var measureArea = new ngeo.interaction.MeasureArea($filter('ngeoUnitPrefix'), {
+        style: new ol.style.Style(),
+        startMsg: $compile('<div translate>' + helpMsg + '</div>')($scope)[0],
+        continueMsg: $compile('<div translate>' + contMsg + '</div>')($scope)[0]
+      });
+
+      drawFeatureCtrl.registerInteraction(measureArea);
+      drawFeatureCtrl.measureArea = measureArea;
+
+      ol.events.listen(
+          measureArea,
+          ngeo.MeasureEventType.MEASUREEND,
+          drawFeatureCtrl.handleDrawEnd.bind(
+              drawFeatureCtrl, ngeo.GeometryType.POLYGON),
+          drawFeatureCtrl
+      );
+      ol.events.listen(
+          measureArea,
+          ol.Object.getChangeEventType(
+              ol.interaction.InteractionProperty.ACTIVE),
+          drawFeatureCtrl.handleActiveChange,
+          drawFeatureCtrl
+      );
+    }
+  };
+};
+
+
+ngeo.module.directive('ngeoMeasurearea', ngeo.measureareaDirective);
 
 goog.provide('ngeo.measureazimutDirective');
 
@@ -108598,6 +108755,11 @@ ngeo.measureazimutDirective = function($compile, gettext, $filter) {
                 geometry.getGeometries()[1]);
             var polygon = ol.geom.Polygon.fromCircle(circle, 64);
             event.feature = new ol.Feature(polygon);
+            var azimut = ngeo.interaction.MeasureAzimut.getAzimut(
+              /** @type {ol.geom.LineString} */ (geometry.getGeometries()[0])
+            );
+            event.feature.set('azimut', azimut);
+
             drawFeatureCtrl.handleDrawEnd(ngeo.GeometryType.CIRCLE, event);
           },
           drawFeatureCtrl
@@ -108949,6 +109111,9 @@ ngeo.DrawfeatureController.prototype.handleDrawEnd = function(type, event) {
   switch (type) {
     case ngeo.GeometryType.CIRCLE:
       feature.set(prop.IS_CIRCLE, true);
+      if (event.feature.get('azimut') !== undefined) {
+        feature.set(prop.AZIMUT, event.feature.get('azimut'));
+      }
       break;
     case ngeo.GeometryType.TEXT:
       feature.set(prop.IS_TEXT, true);
@@ -110503,198 +110668,90 @@ ngeo.popupDirective = function(ngeoPopupTemplateUrl) {
 
 ngeo.module.directive('ngeoPopup', ngeo.popupDirective);
 
-goog.provide('ngeo.profileDirective');
+// Copyright 2010 The Closure Library Authors. All Rights Reserved.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//      http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS-IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
 
-goog.require('goog.asserts');
-goog.require('ngeo');
-goog.require('ngeo.profile');
+/**
+ * @fileoverview Browser capability checks for the events package.
+ *
+ */
+
+
+goog.provide('goog.events.BrowserFeature');
+
+goog.require('goog.userAgent');
 
 
 /**
- * Provides a directive used to insert an elevation profile chart
- * in the DOM.
- *
- * Example:
- *
- *      <div ngeo-profile="ctrl.profileData"
- *        ngeo-profile-options="ctrl.profileOptions"
- *        ngeo-profile-pois="ctrl.profilePois">
- *      </div>
- *
- * Where "ctrl.profileOptions" is of type {@link ngeox.profile.ProfileOptions};
- * "ctrl.profileData" and "ctrl.profilePois" are arrays which will be
- * processed by {@link ngeox.profile.ElevationExtractor} and
- * {@link ngeox.profile.PoiExtractor}.
- *
- * See our live example: {@link ../examples/profile.html}
- *
- * @htmlAttribute {?Object} ngeo-profile The profile data.
- * @htmlAttribute {ngeox.profile.ProfileOptions} ngeo-profile-options The options.
- * @htmlAttribute {?Array} ngeo-profile-pois The data for POIs.
- * @htmlAttribute {*} ngeo-profile-highlight Any property on the scope which
- * evaluated value may correspond to distance from origin.
- * @return {angular.Directive} Directive Definition Object.
- * @ngInject
- * @ngdoc directive
- * @ngname ngeoProfile
+ * Enum of browser capabilities.
+ * @enum {boolean}
  */
-ngeo.profileDirective = function() {
-  return {
-    restrict: 'A',
-    link:
-        /**
-         * @param {angular.Scope} scope Scope.
-         * @param {angular.JQLite} element Element.
-         * @param {angular.Attributes} attrs Attributes.
-         */
-        function(scope, element, attrs) {
+goog.events.BrowserFeature = {
+  /**
+   * Whether the button attribute of the event is W3C compliant.  False in
+   * Internet Explorer prior to version 9; document-version dependent.
+   */
+  HAS_W3C_BUTTON:
+      !goog.userAgent.IE || goog.userAgent.isDocumentModeOrHigher(9),
 
-          var optionsAttr = attrs['ngeoProfileOptions'];
-          goog.asserts.assert(optionsAttr !== undefined);
+  /**
+   * Whether the browser supports full W3C event model.
+   */
+  HAS_W3C_EVENT_SUPPORT:
+      !goog.userAgent.IE || goog.userAgent.isDocumentModeOrHigher(9),
 
-          var selection = d3.select(element[0]);
-          var profile, elevationData, poiData;
+  /**
+   * To prevent default in IE7-8 for certain keydown events we need set the
+   * keyCode to -1.
+   */
+  SET_KEY_CODE_TO_PREVENT_DEFAULT:
+      goog.userAgent.IE && !goog.userAgent.isVersionOrHigher('9'),
 
-          scope.$watchCollection(optionsAttr, function(newVal) {
+  /**
+   * Whether the {@code navigator.onLine} property is supported.
+   */
+  HAS_NAVIGATOR_ONLINE_PROPERTY:
+      !goog.userAgent.WEBKIT || goog.userAgent.isVersionOrHigher('528'),
 
-            var options = /** @type {ngeox.profile.ProfileOptions} */
-                (goog.object.clone(newVal));
+  /**
+   * Whether HTML5 network online/offline events are supported.
+   */
+  HAS_HTML5_NETWORK_EVENT_SUPPORT:
+      goog.userAgent.GECKO && goog.userAgent.isVersionOrHigher('1.9b') ||
+      goog.userAgent.IE && goog.userAgent.isVersionOrHigher('8') ||
+      goog.userAgent.OPERA && goog.userAgent.isVersionOrHigher('9.5') ||
+      goog.userAgent.WEBKIT && goog.userAgent.isVersionOrHigher('528'),
 
-            if (options !== undefined) {
+  /**
+   * Whether HTML5 network events fire on document.body, or otherwise the
+   * window.
+   */
+  HTML5_NETWORK_EVENTS_FIRE_ON_BODY:
+      goog.userAgent.GECKO && !goog.userAgent.isVersionOrHigher('8') ||
+      goog.userAgent.IE && !goog.userAgent.isVersionOrHigher('9'),
 
-              // proxy the hoverCallback and outCallbackin order to be able to
-              // call $applyAsync
-              //
-              // We're using $applyAsync here because the callback may be
-              // called inside the Angular context. For example, it's the case
-              // when the user hover's the line geometry on the map and the
-              // profileHighlight property is changed.
-              //
-              // For that reason we use $applyAsync instead of $apply here.
-
-              if (options.hoverCallback !== undefined) {
-                var origHoverCallback = options.hoverCallback;
-                options.hoverCallback = function() {
-                  origHoverCallback.apply(null, arguments);
-                  scope.$applyAsync();
-                };
-              }
-
-              if (options.outCallback !== undefined) {
-                var origOutCallback = options.outCallback;
-                options.outCallback = function() {
-                  origOutCallback();
-                  scope.$applyAsync();
-                };
-              }
-
-              profile = ngeo.profile(options);
-              refreshData();
-            }
-          });
-
-          scope.$watch(attrs['ngeoProfile'], function(newVal, oldVal) {
-            elevationData = newVal;
-            refreshData();
-          });
-
-          scope.$watch(attrs['ngeoProfilePois'], function(newVal, oldVal) {
-            poiData = newVal;
-            refreshData();
-          });
-
-          scope.$watch(attrs['ngeoProfileHighlight'],
-              function(newVal, oldVal) {
-                if (newVal === undefined) {
-                  return;
-                }
-                if (newVal > 0) {
-                  profile.highlight(newVal);
-                } else {
-                  profile.clearHighlight();
-                }
-              });
-
-          function refreshData() {
-            if (profile !== undefined) {
-              selection.datum(elevationData).call(profile);
-              if (elevationData !== undefined) {
-                profile.showPois(poiData);
-              }
-            }
-          }
-        }
-  };
+  /**
+   * Whether touch is enabled in the browser.
+   */
+  TOUCH_ENABLED:
+      ('ontouchstart' in goog.global ||
+       !!(goog.global['document'] && document.documentElement &&
+          'ontouchstart' in document.documentElement) ||
+       // IE10 uses non-standard touch events, so it has a different check.
+       !!(goog.global['navigator'] &&
+          goog.global['navigator']['msMaxTouchPoints']))
 };
-
-ngeo.module.directive('ngeoProfile', ngeo.profileDirective);
-
-goog.provide('ngeo.recenterDirective');
-
-goog.require('ngeo');
-
-
-/**
- * Provides the "ngeoRecenter" directive, a widget for recentering a map
- * to a specific extent (by using `ngeo-extent`) or a specific zoom level
- * (by using `ngeo-zoom`).
- *
- * Example:
- *
- *      <div ngeo-recenter ngeo-recenter-map="::ctrl.map">
- *        <a href="#" ngeo-extent="[-1898084, 4676723, 3972279, 8590299]">A</a>
- *        <a href="#" ngeo-extent="[727681, 5784754, 1094579, 6029353]">B</a>
- *        <a href="#" ngeo-zoom="1">Zoom to level 1</a>
- *      </div>
- *
- * Or with a select:
- *
- *      <select ngeo-recenter ngeo-recenter-map="::ctrl.map">
- *        <option ngeo-extent="[-1898084, 4676723, 3972279, 8590299]">A</option>
- *        <option ngeo-extent="[727681, 5784754, 1094579, 6029353]">B</option>
- *      </select>
- *
- * See our live example: {@link ../examples/locationchooser.html}
- *
- * @htmlAttribute {ol.Map} ngeo-recenter-map The map.
- * @return {angular.Directive} Directive Definition Object.
- * @ngdoc directive
- * @ngname ngeoRecenter
- */
-ngeo.recenterDirective = function() {
-  return {
-    restrict: 'A',
-    link: function($scope, $element, $attrs) {
-      var mapExpr = $attrs['ngeoRecenterMap'];
-      var map = /** @type {ol.Map} */ ($scope.$eval(mapExpr));
-
-      function recenter(element) {
-        var extent = element.attr('ngeo-extent');
-        if (extent !== undefined) {
-          var mapSize = /** @type {ol.Size} */ (map.getSize());
-          map.getView().fit($scope.$eval(extent), mapSize);
-        }
-        var zoom = element.attr('ngeo-zoom');
-        if (zoom !== undefined) {
-          map.getView().setZoom($scope.$eval(zoom));
-        }
-      }
-
-      // if the children is a link or button
-      $element.on('click', '*', function(event) {
-        recenter(angular.element($(this)));
-      });
-
-      // if the children is an option inside a select
-      $element.on('change', function(event) {
-        var selected = event.target.options[event.target.selectedIndex];
-        recenter(angular.element(selected));
-      });
-
-    }
-  };
-};
-ngeo.module.directive('ngeoRecenter', ngeo.recenterDirective);
 
 // Copyright 2011 The Closure Library Authors. All Rights Reserved.
 //
@@ -111049,91 +111106,6 @@ goog.disposeAll = function(var_args) {
       goog.dispose(disposable);
     }
   }
-};
-
-// Copyright 2010 The Closure Library Authors. All Rights Reserved.
-//
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-//
-//      http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS-IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
-
-/**
- * @fileoverview Browser capability checks for the events package.
- *
- */
-
-
-goog.provide('goog.events.BrowserFeature');
-
-goog.require('goog.userAgent');
-
-
-/**
- * Enum of browser capabilities.
- * @enum {boolean}
- */
-goog.events.BrowserFeature = {
-  /**
-   * Whether the button attribute of the event is W3C compliant.  False in
-   * Internet Explorer prior to version 9; document-version dependent.
-   */
-  HAS_W3C_BUTTON:
-      !goog.userAgent.IE || goog.userAgent.isDocumentModeOrHigher(9),
-
-  /**
-   * Whether the browser supports full W3C event model.
-   */
-  HAS_W3C_EVENT_SUPPORT:
-      !goog.userAgent.IE || goog.userAgent.isDocumentModeOrHigher(9),
-
-  /**
-   * To prevent default in IE7-8 for certain keydown events we need set the
-   * keyCode to -1.
-   */
-  SET_KEY_CODE_TO_PREVENT_DEFAULT:
-      goog.userAgent.IE && !goog.userAgent.isVersionOrHigher('9'),
-
-  /**
-   * Whether the {@code navigator.onLine} property is supported.
-   */
-  HAS_NAVIGATOR_ONLINE_PROPERTY:
-      !goog.userAgent.WEBKIT || goog.userAgent.isVersionOrHigher('528'),
-
-  /**
-   * Whether HTML5 network online/offline events are supported.
-   */
-  HAS_HTML5_NETWORK_EVENT_SUPPORT:
-      goog.userAgent.GECKO && goog.userAgent.isVersionOrHigher('1.9b') ||
-      goog.userAgent.IE && goog.userAgent.isVersionOrHigher('8') ||
-      goog.userAgent.OPERA && goog.userAgent.isVersionOrHigher('9.5') ||
-      goog.userAgent.WEBKIT && goog.userAgent.isVersionOrHigher('528'),
-
-  /**
-   * Whether HTML5 network events fire on document.body, or otherwise the
-   * window.
-   */
-  HTML5_NETWORK_EVENTS_FIRE_ON_BODY:
-      goog.userAgent.GECKO && !goog.userAgent.isVersionOrHigher('8') ||
-      goog.userAgent.IE && !goog.userAgent.isVersionOrHigher('9'),
-
-  /**
-   * Whether touch is enabled in the browser.
-   */
-  TOUCH_ENABLED:
-      ('ontouchstart' in goog.global ||
-       !!(goog.global['document'] && document.documentElement &&
-          'ontouchstart' in document.documentElement) ||
-       // IE10 uses non-standard touch events, so it has a different check.
-       !!(goog.global['navigator'] &&
-          goog.global['navigator']['msMaxTouchPoints']))
 };
 
 // Copyright 2013 The Closure Library Authors. All Rights Reserved.
@@ -113897,6 +113869,264 @@ goog.debug.entryPointRegistry.register(
       goog.events.handleBrowserEvent_ =
           transformer(goog.events.handleBrowserEvent_);
     });
+
+goog.provide('ngeo.Debounce');
+
+goog.require('ngeo');
+
+/* eslint-disable valid-jsdoc */
+// FIXME: eslint can't detect that the function returns a function
+
+/**
+ * Provides a debounce service. That service is a function
+ * used to debounce calls to a user-provided function.
+ *
+ * See our live example: {@link ../examples/permalink.html}
+ *
+ * @typedef {function(function(?), number, boolean):function()}
+ * @ngdoc service
+ * @ngname ngeoDebounce
+ */
+ngeo.Debounce;
+
+
+/**
+ * @param {angular.$timeout} $timeout Angular timeout service.
+ * @return {ngeo.Debounce} The debounce function.
+ * @ngInject
+ */
+ngeo.debounceServiceFactory = function($timeout) {
+  return (
+      /**
+       * @param {function(?)} func The function to debounce.
+       * @param {number} wait The wait time in ms.
+       * @param {boolean} invokeApply Whether the call to `func` is wrapped
+       *    into an `$apply` call.
+       * @return {function()} The wrapper function.
+       */
+      function(func, wait, invokeApply) {
+        /**
+         * @type {?angular.$q.Promise}
+         */
+        var timeout = null;
+        return (
+            function() {
+              var context = this;
+              var args = arguments;
+              var later = function() {
+                timeout = null;
+                func.apply(context, args);
+              };
+              if (timeout !== null) {
+                $timeout.cancel(timeout);
+              }
+              timeout = $timeout(later, wait, invokeApply);
+            });
+      });
+};
+
+
+ngeo.module.factory('ngeoDebounce', ngeo.debounceServiceFactory);
+
+goog.provide('ngeo.profileDirective');
+
+goog.require('goog.asserts');
+goog.require('goog.events');
+goog.require('ngeo');
+goog.require('ngeo.profile');
+goog.require('ngeo.Debounce');
+
+
+/**
+ * Provides a directive used to insert an elevation profile chart
+ * in the DOM.
+ *
+ * Example:
+ *
+ *      <div ngeo-profile="ctrl.profileData"
+ *        ngeo-profile-options="ctrl.profileOptions"
+ *        ngeo-profile-pois="ctrl.profilePois">
+ *      </div>
+ *
+ * Where "ctrl.profileOptions" is of type {@link ngeox.profile.ProfileOptions};
+ * "ctrl.profileData" and "ctrl.profilePois" are arrays which will be
+ * processed by {@link ngeox.profile.ElevationExtractor} and
+ * {@link ngeox.profile.PoiExtractor}.
+ *
+ * See our live example: {@link ../examples/profile.html}
+ *
+ * @htmlAttribute {?Object} ngeo-profile The profile data.
+ * @htmlAttribute {ngeox.profile.ProfileOptions} ngeo-profile-options The options.
+ * @htmlAttribute {?Array} ngeo-profile-pois The data for POIs.
+ * @htmlAttribute {*} ngeo-profile-highlight Any property on the scope which
+ * evaluated value may correspond to distance from origin.
+ * @param {ngeo.Debounce} ngeoDebounce ngeo Debounce service.
+ * @return {angular.Directive} Directive Definition Object.
+ * @ngInject
+ * @ngdoc directive
+ * @ngname ngeoProfile
+ */
+ngeo.profileDirective = function(ngeoDebounce) {
+  return {
+    restrict: 'A',
+    link:
+        /**
+         * @param {angular.Scope} scope Scope.
+         * @param {angular.JQLite} element Element.
+         * @param {angular.Attributes} attrs Attributes.
+         */
+        function(scope, element, attrs) {
+
+          var optionsAttr = attrs['ngeoProfileOptions'];
+          goog.asserts.assert(optionsAttr !== undefined);
+
+          var selection = d3.select(element[0]);
+          var profile, elevationData, poiData;
+
+          scope.$watchCollection(optionsAttr, function(newVal) {
+
+            var options = /** @type {ngeox.profile.ProfileOptions} */
+                (goog.object.clone(newVal));
+
+            if (options !== undefined) {
+
+              // proxy the hoverCallback and outCallbackin order to be able to
+              // call $applyAsync
+              //
+              // We're using $applyAsync here because the callback may be
+              // called inside the Angular context. For example, it's the case
+              // when the user hover's the line geometry on the map and the
+              // profileHighlight property is changed.
+              //
+              // For that reason we use $applyAsync instead of $apply here.
+
+              if (options.hoverCallback !== undefined) {
+                var origHoverCallback = options.hoverCallback;
+                options.hoverCallback = function() {
+                  origHoverCallback.apply(null, arguments);
+                  scope.$applyAsync();
+                };
+              }
+
+              if (options.outCallback !== undefined) {
+                var origOutCallback = options.outCallback;
+                options.outCallback = function() {
+                  origOutCallback();
+                  scope.$applyAsync();
+                };
+              }
+
+              profile = ngeo.profile(options);
+              refreshData();
+            }
+          });
+
+          scope.$watch(attrs['ngeoProfile'], function(newVal, oldVal) {
+            elevationData = newVal;
+            refreshData();
+          });
+
+          scope.$watch(attrs['ngeoProfilePois'], function(newVal, oldVal) {
+            poiData = newVal;
+            refreshData();
+          });
+
+          scope.$watch(attrs['ngeoProfileHighlight'],
+              function(newVal, oldVal) {
+                if (newVal === undefined) {
+                  return;
+                }
+                if (newVal > 0) {
+                  profile.highlight(newVal);
+                } else {
+                  profile.clearHighlight();
+                }
+              });
+
+          goog.events.listen(window, goog.events.EventType.RESIZE,
+              ngeoDebounce(refreshData, 50, true),
+              false, this);
+
+          function refreshData() {
+            if (profile !== undefined) {
+              selection.datum(elevationData).call(profile);
+              if (elevationData !== undefined) {
+                profile.showPois(poiData);
+              }
+            }
+          }
+        }
+  };
+};
+
+ngeo.module.directive('ngeoProfile', ngeo.profileDirective);
+
+goog.provide('ngeo.recenterDirective');
+
+goog.require('ngeo');
+
+
+/**
+ * Provides the "ngeoRecenter" directive, a widget for recentering a map
+ * to a specific extent (by using `ngeo-extent`) or a specific zoom level
+ * (by using `ngeo-zoom`).
+ *
+ * Example:
+ *
+ *      <div ngeo-recenter ngeo-recenter-map="::ctrl.map">
+ *        <a href="#" ngeo-extent="[-1898084, 4676723, 3972279, 8590299]">A</a>
+ *        <a href="#" ngeo-extent="[727681, 5784754, 1094579, 6029353]">B</a>
+ *        <a href="#" ngeo-zoom="1">Zoom to level 1</a>
+ *      </div>
+ *
+ * Or with a select:
+ *
+ *      <select ngeo-recenter ngeo-recenter-map="::ctrl.map">
+ *        <option ngeo-extent="[-1898084, 4676723, 3972279, 8590299]">A</option>
+ *        <option ngeo-extent="[727681, 5784754, 1094579, 6029353]">B</option>
+ *      </select>
+ *
+ * See our live example: {@link ../examples/locationchooser.html}
+ *
+ * @htmlAttribute {ol.Map} ngeo-recenter-map The map.
+ * @return {angular.Directive} Directive Definition Object.
+ * @ngdoc directive
+ * @ngname ngeoRecenter
+ */
+ngeo.recenterDirective = function() {
+  return {
+    restrict: 'A',
+    link: function($scope, $element, $attrs) {
+      var mapExpr = $attrs['ngeoRecenterMap'];
+      var map = /** @type {ol.Map} */ ($scope.$eval(mapExpr));
+
+      function recenter(element) {
+        var extent = element.attr('ngeo-extent');
+        if (extent !== undefined) {
+          var mapSize = /** @type {ol.Size} */ (map.getSize());
+          map.getView().fit($scope.$eval(extent), mapSize);
+        }
+        var zoom = element.attr('ngeo-zoom');
+        if (zoom !== undefined) {
+          map.getView().setZoom($scope.$eval(zoom));
+        }
+      }
+
+      // if the children is a link or button
+      $element.on('click', '*', function(event) {
+        recenter(angular.element($(this)));
+      });
+
+      // if the children is an option inside a select
+      $element.on('change', function(event) {
+        var selected = event.target.options[event.target.selectedIndex];
+        recenter(angular.element(selected));
+      });
+
+    }
+  };
+};
+ngeo.module.directive('ngeoRecenter', ngeo.recenterDirective);
 
 // Copyright 2012 The Closure Library Authors. All Rights Reserved.
 //
@@ -122586,14 +122816,18 @@ ngeo.format.XSDAttribute.prototype.readFromElementNode_ = function(node) {
 
   var type = node.getAttribute('type');
   if (type) {
-    // Skip attribute of any 'geometry' type
     var geomRegex =
       /gml:((Multi)?(Point|Line|Polygon|Curve|Surface|Geometry)).*/;
     if (geomRegex.exec(type)) {
-      return null;
-    }
-
-    if (type === 'xsd:string') {
+      attribute.type = ngeo.format.XSDAttributeType.GEOMETRY;
+      if (/^gml:Point/.exec(type)) {
+        attribute.geomType = ol.geom.GeometryType.POINT;
+      } else if (/^gml:LineString/.exec(type)) {
+        attribute.geomType = ol.geom.GeometryType.LINE_STRING;
+      } else if (/^gml:Polygon/.exec(type)) {
+        attribute.geomType = ol.geom.GeometryType.POLYGON;
+      }
+    } else if (type === 'xsd:string') {
       attribute.type = ngeo.format.XSDAttributeType.TEXT;
     } else if (type === 'xsd:date') {
       attribute.type = ngeo.format.XSDAttributeType.DATE;
@@ -122623,6 +122857,24 @@ ngeo.format.XSDAttribute.prototype.readFromElementNode_ = function(node) {
 
 
 /**
+ * Returns the first geometry attribute among a given list of attributes.
+ * @param {Array.<ngeox.Attribute>} attributes The list of attributes.
+ * @return {?ngeox.Attribute} A geometry attribute object.
+ * @export
+ */
+ngeo.format.XSDAttribute.getGeometryAttribute = function(attributes) {
+  var geomAttribute = null;
+  for (var i = 0, ii = attributes.length; i < ii; i++) {
+    if (attributes[i].type === ngeo.format.XSDAttributeType.GEOMETRY) {
+      geomAttribute = attributes[i];
+      break;
+    }
+  }
+  return geomAttribute;
+};
+
+
+/**
  * @enum {string}
  */
 ngeo.format.XSDAttributeType = {
@@ -122634,6 +122886,10 @@ ngeo.format.XSDAttributeType = {
    * @type {string}
    */
   DATETIME: 'datetime',
+  /**
+   * @type {string}
+   */
+  GEOMETRY: 'geometry',
   /**
    * @type {string}
    */
@@ -123359,8 +123615,6 @@ ngeo.interaction.ModifyCircle.prototype.addFeature_ = function(feature) {
     if (map) {
       this.handlePointerAtPixel_(this.lastPixel_, map);
     }
-    ol.events.listen(feature, ol.events.EventType.CHANGE,
-        this.handleFeatureChange_, this);
   }
 };
 
@@ -123390,8 +123644,6 @@ ngeo.interaction.ModifyCircle.prototype.removeFeature_ = function(feature) {
     this.overlay_.getSource().removeFeature(this.vertexFeature_);
     this.vertexFeature_ = null;
   }
-  ol.events.unlisten(feature, ol.events.EventType.CHANGE,
-      this.handleFeatureChange_, this);
 };
 
 
@@ -123435,19 +123687,6 @@ ngeo.interaction.ModifyCircle.prototype.handleFeatureAdd_ = function(evt) {
   goog.asserts.assertInstanceof(feature, ol.Feature,
       'feature should be an ol.Feature');
   this.addFeature_(feature);
-};
-
-
-/**
- * @param {ol.events.Event} evt Event.
- * @private
- */
-ngeo.interaction.ModifyCircle.prototype.handleFeatureChange_ = function(evt) {
-  if (!this.changingFeature_) {
-    var feature = /** @type {ol.Feature} */ (evt.target);
-    this.removeFeature_(feature);
-    this.addFeature_(feature);
-  }
 };
 
 
@@ -123581,6 +123820,10 @@ ngeo.interaction.ModifyCircle.handleDragEvent_ = function(evt) {
   var circle = new ol.geom.Circle(center, line.getLength());
   var coordinates = ol.geom.Polygon.fromCircle(circle, 64).getCoordinates();
   this.setGeometryCoordinates_(geometry, coordinates);
+
+
+  var azimut = ngeo.interaction.MeasureAzimut.getAzimut(line);
+  this.features_.getArray()[0].set(ngeo.FeatureProperties.AZIMUT, azimut);
 
   this.createOrUpdateVertexFeature_(vertex);
 };
@@ -126312,64 +126555,6 @@ ngeo.createGeoJSONBloodhound = function(url, opt_filter, opt_featureProjection,
 
 
 ngeo.module.value('ngeoCreateGeoJSONBloodhound', ngeo.createGeoJSONBloodhound);
-
-goog.provide('ngeo.Debounce');
-
-goog.require('ngeo');
-
-/* eslint-disable valid-jsdoc */
-// FIXME: eslint can't detect that the function returns a function
-
-/**
- * Provides a debounce service. That service is a function
- * used to debounce calls to a user-provided function.
- *
- * See our live example: {@link ../examples/permalink.html}
- *
- * @typedef {function(function(?), number, boolean):function()}
- * @ngdoc service
- * @ngname ngeoDebounce
- */
-ngeo.Debounce;
-
-
-/**
- * @param {angular.$timeout} $timeout Angular timeout service.
- * @return {ngeo.Debounce} The debounce function.
- * @ngInject
- */
-ngeo.debounceServiceFactory = function($timeout) {
-  return (
-      /**
-       * @param {function(?)} func The function to debounce.
-       * @param {number} wait The wait time in ms.
-       * @param {boolean} invokeApply Whether the call to `func` is wrapped
-       *    into an `$apply` call.
-       * @return {function()} The wrapper function.
-       */
-      function(func, wait, invokeApply) {
-        /**
-         * @type {?angular.$q.Promise}
-         */
-        var timeout = null;
-        return (
-            function() {
-              var context = this;
-              var args = arguments;
-              var later = function() {
-                timeout = null;
-                func.apply(context, args);
-              };
-              if (timeout !== null) {
-                $timeout.cancel(timeout);
-              }
-              timeout = $timeout(later, wait, invokeApply);
-            });
-      });
-};
-
-
-ngeo.module.factory('ngeoDebounce', ngeo.debounceServiceFactory);
 
 goog.provide('ngeo.CreatePopup');
 goog.provide('ngeo.Popup');
@@ -129843,6 +130028,35 @@ ngeo.module.constant('ngeoWfsPermalinkOptions',
  * WFS permalink service that can be used to load features with a WFS
  * GetFeature request given query parameters.
  *
+ * Resulting features are then highlighted and
+ * the map is zoomed to the nearest map extent.
+ *
+ * Parameters:
+ *
+ * - ``wfs_layer`` tells what layer will be queried
+ * - ``wfs_showFeatures`` (boolean) tells if the features should be
+ *   highlighted and listed (when true) or if the map should only be
+ *   recentered on the features (when false). Default is true.
+ * - other parameters will be considered as WFS attribute/values filters and
+ *   must be of the form:
+ *   ``wfs_<layer attribute name>=<a comma-separated list of values>``
+ *
+ * Example:
+ * http://example.com?wfs_layer=parcels&wfs_city=Oslo&wfs_number=12,34,56
+ * will load parcels #12, 34 and 56 of the city of Oslo.
+ *
+ * It is possible to define several groups of filtering parameters by:
+ *
+ * - adding a ``wfs_ngroups`` parameter telling how many groups are defined
+ * - prefixing all filtering parameters by the number of each group,
+ *   starting at 0. For instance ``wfs_0_<layer attribute name>``
+ *
+ * Example:
+ * http://example.com?wfs_layer=parcels&wfs_ngroups=2
+ * &wfs_0_city=Oslo&wfs_0_number=12,34,56&wfs_1_city=Paris&wfs_1_number=78,90
+ * will load parcels #12, 34 and 56 of the city of Oslo as well as
+ * parcels #78 and 90 of the city of Paris.
+ *
  * @constructor
  * @param {angular.$http} $http Angular $http service.
  * @param {ngeox.QueryResult} ngeoQueryResult The ngeo query result service.
@@ -130115,10 +130329,10 @@ goog.require('ngeo');
    * @ngInject
    */
   var runner = function($templateCache) {
-    $templateCache.put('ngeo/attributes.html', '<form class=form> <div class=form-group ng-repeat="attribute in ::attrCtrl.attributes"> <label>{{ attribute.name }}:</label> <div ng-switch=attribute.type> <select ng-switch-when=select ng-model=attrCtrl.properties[attribute.name] ng-change=attrCtrl.handleInputChange(attribute.name); class=form-control type=text> <option ng-repeat="attribute in ::attribute.choices" value="{{ ::attribute }}"> {{ ::attribute }} </option> </select> <input ng-switch-default ng-model=attrCtrl.properties[attribute.name] ng-change=attrCtrl.handleInputChange(attribute.name); class=form-control type=text> </div> </div> </form> ');
+    $templateCache.put('ngeo/attributes.html', '<form class=form> <fieldset ng-disabled=attrCtrl.disabled> <div class=form-group ng-repeat="attribute in ::attrCtrl.attributes"> <div ng-if="attribute.type !== \'geometry\'"> <label>{{ attribute.name }}:</label> <div ng-switch=attribute.type> <select ng-switch-when=select ng-model=attrCtrl.properties[attribute.name] ng-change=attrCtrl.handleInputChange(attribute.name); class=form-control type=text> <option ng-repeat="attribute in ::attribute.choices" value="{{ ::attribute }}"> {{ ::attribute }} </option> </select> <input ng-switch-when=date ui-date=attrCtrl.dateOptions ng-model=attrCtrl.properties[attribute.name] ng-change=attrCtrl.handleInputChange(attribute.name); class=form-control type=text> <input ng-switch-when=datetime ui-date=attrCtrl.dateOptions ng-model=attrCtrl.properties[attribute.name] ng-change=attrCtrl.handleInputChange(attribute.name); class=form-control type=text> <input ng-switch-default ng-model=attrCtrl.properties[attribute.name] ng-change=attrCtrl.handleInputChange(attribute.name); class=form-control type=text> </div> </div> </div> </fieldset> </form> ');
     $templateCache.put('ngeo/popup.html', '<h4 class="popover-title ngeo-popup-title"> <span ng-bind-html=title></span> <button type=button class=close ng-click="open = false"> &times;</button> </h4> <div class=popover-content ng-bind-html=content></div> ');
     $templateCache.put('ngeo/scaleselector.html', '<div class="btn-group btn-block" ng-class="::{\'dropup\': scaleselectorCtrl.options.dropup}"> <button type=button class="btn btn-default dropdown-toggle" data-toggle=dropdown aria-expanded=false> <span ng-bind-html=scaleselectorCtrl.currentScale></span>&nbsp;<i class=caret></i> </button> <ul class="dropdown-menu btn-block" role=menu> <li ng-repeat="zoomLevel in ::scaleselectorCtrl.zoomLevels"> <a href ng-click=scaleselectorCtrl.changeZoom(zoomLevel) ng-bind-html=scaleselectorCtrl.getScale(zoomLevel)> </a> </li> </ul> </div> ');
-    $templateCache.put('ngeo/datepicker.html', '<div class=gmf-datepicker> <form name=dateForm class=datepicker-form novalidate> <div ng-if="::datepickerCtrl.time.widget === \'datepicker\'"> <div class=start-date> <span ng-if="::datepickerCtrl.time.mode === \'range\'" translate>From:</span> <span ng-if="::datepickerCtrl.time.mode !== \'range\'" translate>Date:</span> <input name=sdate ui-date=datepickerCtrl.sdateOptions ng-model=datepickerCtrl.sdate required> </div> <div class=end-date ng-if="::datepickerCtrl.time.mode === \'range\'"> <span translate>To:</span> <input name=edate ui-date=datepickerCtrl.edateOptions ng-model=datepickerCtrl.edate required> </div> </div> </form> </div> ');
+    $templateCache.put('ngeo/datepicker.html', '<div class=ngeo-datepicker> <form name=dateForm class=datepicker-form novalidate> <div ng-if="::datepickerCtrl.time.widget === \'datepicker\'"> <div class=start-date> <span ng-if="::datepickerCtrl.time.mode === \'range\'" translate>From:</span> <span ng-if="::datepickerCtrl.time.mode !== \'range\'" translate>Date:</span> <input name=sdate ui-date=datepickerCtrl.sdateOptions ng-model=datepickerCtrl.sdate required> </div> <div class=end-date ng-if="::datepickerCtrl.time.mode === \'range\'"> <span translate>To:</span> <input name=edate ui-date=datepickerCtrl.edateOptions ng-model=datepickerCtrl.edate required> </div> </div> </form> </div> ');
     $templateCache.put('ngeo/layertree.html', '<span ng-if=::!layertreeCtrl.isRoot>{{::layertreeCtrl.node.name}}</span> <input type=checkbox ng-if="::layertreeCtrl.node && !layertreeCtrl.node.children" ng-model=layertreeCtrl.getSetActive ng-model-options="{getterSetter: true}"> <ul ng-if=::layertreeCtrl.node.children> <li ng-repeat="node in ::layertreeCtrl.node.children" ngeo-layertree=::node ngeo-layertree-notroot ngeo-layertree-map=layertreeCtrl.map ngeo-layertree-nodelayerexpr=layertreeCtrl.nodelayerExpr ngeo-layertree-listenersexpr=layertreeCtrl.listenersExpr> </li> </ul> ');
     $templateCache.put('ngeo/colorpicker.html', '<table class=palette> <tr ng-repeat="colors in ::ctrl.colors"> <td ng-repeat="color in ::colors" ng-click=ctrl.setColor(color) ng-class="{\'selected\': color == ctrl.color}"> <div ng-style="::{\'background-color\': color}"></div> </td> </tr> </table> ');
   };
